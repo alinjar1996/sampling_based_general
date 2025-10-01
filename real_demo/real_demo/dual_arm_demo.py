@@ -22,19 +22,19 @@ from rtde_receive import RTDEReceiveInterface as RTDEReceive
 PACKAGE_DIR = get_package_share_directory('real_demo')
 np.set_printoptions(precision=4, suppress=True)
 
-target_positions = np.array([
-    [-0.2, 0.0, 0.3],
-    [-0.22, 0.1, 0.25],
-    [-0.25, -0.2, 0.3],
-    [-0.25, -0.25, 0.3]
-])
+# target_positions = np.array([
+#     [-0.2, 0.0, 0.3],
+#     [-0.22, 0.1, 0.25],
+#     [-0.25, -0.2, 0.3],
+#     [-0.25, -0.25, 0.3]
+# ])
 
-init_positions = np.array([
-    [-0.22, 0.0, 0.2],
-    [-0.22, 0.1, 0.2],
-    [-0.25, -0.2, 0.2],
-    [-0.28, -0.25, 0.2]
-])
+# init_positions = np.array([
+#     [-0.22, 0.0, 0.2],
+#     [-0.22, 0.1, 0.2],
+#     [-0.25, -0.2, 0.2],
+#     [-0.28, -0.25, 0.2]
+# ])
 
 
 class Planner(Node):
@@ -64,8 +64,8 @@ class Planner(Node):
         self.idx = str(self.idx).zfill(2)
 
         # Planner params
-        self.num_dof = 12
-        self.init_joint_position = np.array([1.5, -1.8, 1.75, -1.25, -1.6, 0, -1.5, -1.8, 1.75, -1.25, -1.6, 0])
+        self.num_dof = 6
+        self.init_joint_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         num_batch = self.get_parameter('num_batch').get_parameter_value().integer_value
         num_steps = self.get_parameter('num_steps').get_parameter_value().integer_value
         maxiter_cem = self.get_parameter('maxiter_cem').get_parameter_value().integer_value
@@ -83,45 +83,30 @@ class Planner(Node):
             self.pathes = {
                 "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'setup_{self.idx}.npz'),
                 "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_{self.idx}.npz'),
-                "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_21{self.idx}.npz'),
+                # "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_walker{self.idx}.npz'),
             }
             self.data_buffers = {
                 'batch_size': [num_batch],
                 'horizon': [num_steps],
 
-                'target_0': [0]*self.num_targets,
-                'total_time_s': [0]*self.num_targets,
-                'success': [0]*self.num_targets,
-                'reason': [0]*self.num_targets,
+                # 'target_0': [0]*self.num_targets,
+                # 'total_time_s': [0]*self.num_targets,
+                # 'success': [0]*self.num_targets,
+                # 'reason': [0]*self.num_targets,
 
-                'step_time_ms': [[] for _ in range(self.num_targets)],
-                'theta': [[] for _ in range(self.num_targets)],
-                'thetadot': [[] for _ in range(self.num_targets)],
+                # 'step_time_ms': [[] for _ in range(self.num_targets)],
+                # 'theta': [[] for _ in range(self.num_targets)],
+                # 'thetadot': [[] for _ in range(self.num_targets)],
 
-                'cost_r': [[] for _ in range(self.num_targets)],
-                'cost_eef_to_obj': [[] for _ in range(self.num_targets)],
-                'cost_obj_to_targ': [[] for _ in range(self.num_targets)],
-                'cost_dist': [[] for _ in range(self.num_targets)],
-                'cost_zy': [[] for _ in range(self.num_targets)],
+                # 'cost_r': [[] for _ in range(self.num_targets)],
+                # 'cost_eef_to_obj': [[] for _ in range(self.num_targets)],
+                # 'cost_obj_to_targ': [[] for _ in range(self.num_targets)],
+                # 'cost_dist': [[] for _ in range(self.num_targets)],
+                # 'cost_zy': [[] for _ in range(self.num_targets)],
             }
 
-            # Store data in lists during runtime
-            # self.data_buffers = {
-            #     'setup': [],
-            #     'theta': [],
-            #     'thetadot': [],
-            #     # 'theta_planned': [],
-            #     # 'thetadot_planned': [],
-            #     'target_0': [],
-            #     # 'target_1': [],
-            #     # 'theta_planned_batched': [],
-            #     # 'thetadot_planned_batched': [],
-            #     # 'cost_cgr_batched': [],
-            #     # 'timestamp': [],
-            # }
 
 
-        self.task = 'pick'
         self.target_idx = 0
 
         cost_weights = {
@@ -167,7 +152,7 @@ class Planner(Node):
             self.initialize_robot_connection()
         
         # Initialize MuJoCo model and data
-        model_path = os.path.join(get_package_share_directory('real_demo'), 'ur5e_hande_mjx', 'scene.xml')
+        model_path = os.path.join(get_package_share_directory('real_demo'), 'walker_mjx', 'scene.xml')
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.model.opt.timestep = self.timestep
   
@@ -184,40 +169,31 @@ class Planner(Node):
                 joint_names_vel.append(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i))
         
         
-        robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
-                                'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
+        # robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
+        #                         'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
         
+        robot_joints = np.array(['right_hip', 'right_knee', 
+                        'right_ankle', 'left_hip', 
+                        'left_knee', 'left_ankle'])
         self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
         self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
 
-        self.ball_qpos_idx = self.model.body_dofadr[self.model.body(name="ball").id]
 
-        # Set the table positions alligmed with the motion capture coordinate system
         if self.use_hardware:
             setup = np.load(os.path.join(PACKAGE_DIR, 'data', 'manual', 'setup', f'setup_000.npz'), allow_pickle=True)
 
             marker_pos = setup['setup'][0][1]
             marker_diff = marker_pos-self.model.body(name='table0_marker').pos
 
-            self.model.body(name='table_0').pos = setup['setup'][0][0]
-            self.model.body(name='table0_marker').pos = setup['setup'][0][1]
-            self.model.body(name='table_1').pos = setup['setup'][0][2]
-            self.model.body(name='table1_marker').pos = setup['setup'][0][3]
-            self.model.body(name='ball').pos += marker_diff
-            self.model.body(name='ball_pick').pos += marker_diff
-            self.model.body(name='target_0').pos += marker_diff
 
         # mujoco.mj_forward(self.model, self.data)
         self.data = mujoco.MjData(self.model)
 
-        # self.data.qpos[self.ball_qpos_idx:self.ball_qpos_idx+3] = self.model.body(name='ball').pos
-        # self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='target_0').id]] = self.model.body(name='ball').pos + np.array([0, 0, 0.2])
-
+        
         mujoco.mj_forward(self.model, self.data)
 
         self.data.qpos[self.joint_mask_pos] = self.init_joint_position
-        self.ball_init_pos = self.data.qpos[self.ball_qpos_idx:self.ball_qpos_idx+7].copy()
-        # self.ball_init_pos[2] += 0.05
+
 
         self.traj_time_start = time.time()
         self.success = 0
@@ -243,7 +219,6 @@ class Planner(Node):
         # Setup viewer
         self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
         # self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-        self.viewer.cam.lookat[:] = self.model.body(name='table_0').pos
         self.viewer.cam.distance = 5.0 
         self.viewer.cam.azimuth = 90.0 
         self.viewer.cam.elevation = -30.0 
@@ -256,43 +231,72 @@ class Planner(Node):
         # Start control timer
         self.timer = self.create_timer(self.timestep, self.control_loop)
 
-    def render_trace(self, viewer_, *eef_trace_positions):
+    # def render_trace(self, viewer_, torso_trace_positions):
 
+    #     """Render the end-effector trajectory trace in the viewer."""
+    #     # Clear any existing overlay geoms
+    #     viewer_.user_scn.ngeom = 0
+    #     for trace in torso_trace_positions:
+    #         # Add spheres for each position in the trace
+    #         for pos in trace:
+    #             # Create a new geom in the user scene
+    #             geom_id = viewer_.user_scn.ngeom
+    #             viewer_.user_scn.ngeom += 1
+    
+    #             # Initialize the geom properties
+    #             mujoco.mjv_initGeom(
+    #                 viewer_.user_scn.geoms[geom_id],
+    #                 type=mujoco.mjtGeom.mjGEOM_SPHERE,
+    #                 size = np.array([0.01, 0.01, 0.01], dtype=np.float64),      # sphere radius
+    #                 pos = np.array(pos, dtype=np.float64).reshape(3),           # position (x,y,z)
+    #                 mat = np.eye(3, dtype=np.float64).flatten(),                # identity rotation (9,)
+    #                 rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)    # color RGBA 
+    #             )
+            
+    #         # size=[0.01, 0.01, 0.01],  # radius 1 cm sphere
+    #         # pos=pos,
+    #         # mat=np.eye(3).flatten(),
+    #         # rgba=[0, 0, 1, 0.5]  
+
+    #         #     # Ensure correct numpy types for MuJoCo
+    #         # size = np.array([0.01, 0.01, 0.01], dtype=np.float64)      # sphere radius
+    #         # pos = np.array(pos, dtype=np.float64).reshape(3)           # position (x,y,z)
+    #         # mat = np.eye(3, dtype=np.float64).flatten()                # identity rotation (9,)
+    #         # rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)    # color RGBA
+
+    def render_trace(self, viewer_, torso_trace_positions):
         """Render the end-effector trajectory trace in the viewer."""
         # Clear any existing overlay geoms
         viewer_.user_scn.ngeom = 0
-        for trace in eef_trace_positions:
-            # Add spheres for each position in the trace
-            for pos in trace:
-                # Create a new geom in the user scene
-                geom_id = viewer_.user_scn.ngeom
-                viewer_.user_scn.ngeom += 1
-    
-                # Initialize the geom properties
-                mujoco.mjv_initGeom(
-                    viewer_.user_scn.geoms[geom_id],
-                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                    size=[0.01, 0.01, 0.01],  # radius 1 cm sphere
-                    pos=pos,
-                    mat=np.eye(3).flatten(),
-                    rgba=[0, 0, 1, 0.5]  
-                )
+
+        for pos in torso_trace_positions:   # each pos is already [x,y,z]
+            # Create a new geom in the user scene
+            geom_id = viewer_.user_scn.ngeom
+            viewer_.user_scn.ngeom += 1
+
+            # Ensure correct numpy types for MuJoCo
+            size = np.array([0.01, 0.01, 0.01], dtype=np.float64)
+            pos = np.array(pos, dtype=np.float64).reshape(3)
+            mat = np.eye(3, dtype=np.float64).flatten()
+            rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)
+
+            # Initialize the geom properties
+            mujoco.mjv_initGeom(
+                viewer_.user_scn.geoms[geom_id],
+                mujoco.mjtGeom.mjGEOM_SPHERE,
+                size,
+                pos,
+                mat,
+                rgba
+            )
 
     def control_loop(self):
         """Main control loop running at fixed interval"""
         start_time = time.time()
 
-        # if self.task=='move':
-        #     center_pos = (self.data.site_xpos[self.planner.tcp_id_0]+self.data.site_xpos[self.planner.tcp_id_1])/2 + np.array([0, 0, 0.05])
-        #     self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='ball').id]] = center_pos
-        #     mujoco.mj_forward(self.model, self.data)
-
-        # if self.task=='pick':
-        #     self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='ball_pick').id]] = self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='ball').id]]
-            
+           
         
 
-        self.planner.target_2[:3] = self.data.xpos[self.model.body(name='ball').id]
 
         # Get current state
         if self.use_hardware:
@@ -308,8 +312,8 @@ class Planner(Node):
         
         
         # Compute control
-        self.thetadot, cost, cost_list, thetadot_horizon, theta_horizon, eef_0_planned, eef_1_planned = self.planner.compute_control(current_pos, current_vel, self.task)
-        cost_c, cost_r, cost_dist_mjx, cost_z = cost_list
+        self.thetadot, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(current_pos, current_vel)
+        cost_height, cost_orientation, cost_velocity, cost_control = cost_list
 
         if self.use_hardware:
             # Send velocity command
@@ -326,176 +330,26 @@ class Planner(Node):
             self.data.qvel[:] = np.zeros(len(self.joint_mask_vel))
             self.data.qvel[self.joint_mask_vel] = self.thetadot
             mujoco.mj_step(self.model, self.data)
-
-        self.render_trace(self.viewer, eef_0_planned[:,:3], eef_1_planned[:,:3])
-
-        center_pos = (self.data.site_xpos[self.planner.tcp_id_0]+self.data.site_xpos[self.planner.tcp_id_1])/2
-        cost_g = np.linalg.norm(center_pos - (self.data.xpos[self.model.body(name='ball').id]-np.array([0, 0, 0.05])))
-
-        distances = np.linalg.norm(self.data.site_xpos[self.planner.tcp_id_0] - self.data.site_xpos[self.planner.tcp_id_1])
-        cost_dist = np.abs(distances - 0.25)
-
-        cost_zy = np.linalg.norm(self.data.site_xpos[self.planner.tcp_id_0][1:3] - self.data.site_xpos[self.planner.tcp_id_1][1:3])
-
-        current_cost_r_0 = quaternion_distance(self.data.xquat[self.planner.hande_id_0], np.array([0.183, -0.683, -0.683, 0.183]))
-        current_cost_r_1 = quaternion_distance(self.data.xquat[self.planner.hande_id_1], np.array([0.183, -0.683, 0.683, -0.183]))
-
-        cost_g_ball = np.linalg.norm(self.data.xpos[self.model.body(name='ball').id] - self.planner.target_0[:3])
-
-
-        if self.task=='pick':
-            target_reached = (
-                    cost_g < self.grab_pos_thresh \
-                    and cost_dist < 0.02 \
-                    and current_cost_r_0 < self.grab_rot_thresh \
-                    and current_cost_r_1 < self.grab_rot_thresh
-            )
-
-            if target_reached:
-                # self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='ball_pick').id]] = np.array([0, 0, 2])
-                self.task = 'move'
-
-        elif self.task == 'move':
-            target_reached = cost_g_ball < 0.04
-            if target_reached:
-                print("======================= TARGET REACHED =======================", flush=True)
-                self.success = 1
-                self.reason = 'na'
-                self.reset_simulation()
-                
-            elif cost_g > 0.2:
-                print("======================= TARGET FAILED: BALL FALL =======================", flush=True)
-                self.success = 0
-                self.reason = 'fall'
-                self.reset_simulation()
         
-        if time.time() - self.traj_time_start > 60:
-            print("======================= TARGET FAILED: TIMEOUT =======================", flush=True)
-            self.success = 0
-            self.reason = 'timeout'
-            self.reset_simulation()
+        # print("torso_trace_planned", torso_trace_planned)
 
-        if cost_c > 300:
-            print("======================= TARGET FAILED: COLLISION =======================", flush=True)
-            self.success = 0
-            self.reason = 'collision'
-            self.reset_simulation()
+        self.render_trace(self.viewer, torso_trace_planned[:,:3])
 
-        if self.record_data_ and self.target_idx<self.num_targets:    
-            theta = self.data.qpos[self.joint_mask_pos]
-            dist_s = np.abs(distances - 0.17)
-            cost_r_s = (current_cost_r_0+current_cost_r_1)/2
-            step_time_ms = (time.time() - start_time)*1000
 
-            self.data_buffers['step_time_ms'][self.target_idx].append(step_time_ms)
-            self.data_buffers['theta'][self.target_idx].append(theta.copy())
-            self.data_buffers['thetadot'][self.target_idx].append(self.thetadot.copy())
-
-            self.data_buffers['cost_r'][self.target_idx].append(cost_r_s.copy())
-            self.data_buffers['cost_eef_to_obj'][self.target_idx].append(cost_g.copy())
-            self.data_buffers['cost_obj_to_targ'][self.target_idx].append(cost_g_ball.copy())
-            self.data_buffers['cost_dist'][self.target_idx].append(dist_s.copy())
-            self.data_buffers['cost_zy'][self.target_idx].append(cost_zy.copy())
-        
         # Update viewer
         self.viewer.sync()
         
         # Print debug info
         print(f'\n| Target idx: {self.target_idx} '
               f'\n| Total time: {"%.0f"%(time.time() - self.traj_time_start)}s '
-              f'\n| Task: {self.task} '
               f'\n| Step Time: {"%.0f"%((time.time() - start_time)*1000)}ms '
-              f'\n| Cost eef to obj: {"%.2f, %.2f"%(float(cost_g), float(cost_g))} '
-              f'\n| Cost obj to g: {"%.2f, %.2f"%(float(cost_g_ball), float(cost_g_ball))} '
-              f'\n| Cost r, dist, z: {"%.2f, %.2f, %.2f"%(float(cost_r), float(cost_dist_mjx), float(cost_z))} '
-              f'\n| DIST: {"%.2f"%(float(distances))} '
-              f'\n| Cost c: {"%.2f"%(float(cost_c))} '
-              f'\n| Cost dist: {"%.2f"%(float(cost_dist))} '
-              f'\n| Cost gr0: {"%.2f"%(float(current_cost_r_0))} '
-              f'\n| Cost gr1: {"%.2f"%(float(current_cost_r_1))} '
               f'\n| Cost: {np.round(cost, 2)} ', flush=True)
         
         time_until_next_step = self.model.opt.timestep - (time.time() - start_time)
         if time_until_next_step > 0:
             time.sleep(time_until_next_step) 
 
-    def reset_simulation(self):
-        if self.target_idx<self.num_targets:
-            self.data_buffers['success'][self.target_idx] = self.success
-            self.data_buffers['reason'][self.target_idx] = self.reason
-            self.data_buffers['total_time_s'][self.target_idx] = (time.time() - self.traj_time_start)
-            self.data_buffers['target_0'][self.target_idx] = self.planner.target_0.copy()
-
-        self.success = 0
-        self.reason = 'na'
-        self.traj_time_start = time.time()
-        self.target_idx += 1
-
-        self.task='pick'
-        self.planner.xi_cov = np.kron(np.eye(self.planner.cem.num_dof), 10*np.identity(self.planner.cem.nvar_single)) 
-        self.planner.xi_mean = np.zeros(self.planner.cem.nvar)
-        self.data.qpos[self.ball_qpos_idx : self.ball_qpos_idx+7] = self.ball_init_pos
-        self.data.qpos[self.joint_mask_pos] = self.init_joint_position
-        self.data.qvel[self.joint_mask_vel] = np.zeros(self.init_joint_position.shape)
-
-        self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='target_0').id]] = self.generate_targets()
-        self.planner.target_0[:3] = self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='target_0').id]]
-        mujoco.mj_step(self.model, self.data)
-
-    def generate_targets(self):
-        area_center_1 = np.array([-0.3, -0.0, 0.3])
-        area_size_1 = np.array([0.05, 0.05, 0.05])
-
-        target_pos = area_center_1 + np.random.uniform(-area_size_1, area_size_1, size=3)
-        return target_pos
-                
-    def gripper_control(self, gripper_idx=0, action='open'):
-        if self.use_hardware:
-            self.req.position = 250 if action == 'close' else 0
-            self.req.speed = 255
-            self.req.force = 255
-            resp = self.grippers[str(gripper_idx)]['srv'].call_async(self.req)
-
-        self.grippers[str(gripper_idx)]['state'] = action
-        
-        print(f"Gripper {gripper_idx} has complited {action} action.")
-
-    def move_to_start(self):
-        """Move robot to initial joint position"""
-        self.rtde_c_0.moveJ(self.init_joint_position[:self.num_dof//2], asynchronous=False)
-        self.rtde_c_1.moveJ(self.init_joint_position[self.num_dof//2:], asynchronous=False)
-        self.gripper_control(gripper_idx=0, action='open') 
-        self.gripper_control(gripper_idx=1, action='open') 
-        print("Moved to initial pose.", flush=True)
-
-    def initialize_robot_connection(self):
-        try:
-            from gripper_srv.srv import GripperService
-
-            self.rtde_c_0 = RTDEControl("192.168.0.120")
-            self.rtde_r_0 = RTDEReceive("192.168.0.120")
-
-            self.rtde_c_1 = RTDEControl("192.168.0.124")
-            self.rtde_r_1 = RTDEReceive("192.168.0.124")
-
-            self.grippers['0']['srv'] = self.create_client(GripperService, 'gripper_1/gripper_service')
-            while not self.grippers['0']['srv'].wait_for_service(timeout_sec=1.0):
-                self.get_logger().info('Gripper 0 service not available, waiting again...')
-
-            self.grippers['1']['srv'] = self.create_client(GripperService, 'gripper_2/gripper_service')
-            while not self.grippers['1']['srv'].wait_for_service(timeout_sec=1.0):
-                self.get_logger().info('Gripper 1 service not available, waiting again...')
-
-            self.req = GripperService.Request()
-            print("Connection with UR5e established.", flush=True)
-        except Exception as e:
-            print(f"Could not connect to robot: {e}", flush=True)
-            rclpy.shutdown()
-            return
-
-        # Move to initial position
-        self.move_to_start()
-
+    
     def close_connection(self):
         if self.use_hardware:
             """Cleanup robot connection"""
@@ -526,47 +380,29 @@ class Planner(Node):
         obstacle_rot = np.array([0.0, 1.0, 0, 0])
         self.planner.update_obstacle(obstacle_pos, obstacle_rot)
 
-    def record_data(self):
-        """Save data to npy file"""
-        # self.data_buffers['setup'].append([self.model.body(name='table_0').pos, self.model.body(name='table0_marker').pos, 
-        #                                    self.model.body(name='table_1').pos, self.model.body(name='table1_marker').pos])
-        # np.savez(
-        #     self.pathes['setup'],
-        #     setup=self.data_buffers['setup'],
-        # )
-        # np.savez(
-        #     self.pathes['trajectory'],
-        #     theta=np.array(self.data_buffers['theta']),
-        #     thetadot=np.array(self.data_buffers['thetadot']),
-        #     theta_planned=np.array(self.data_buffers['theta_planned']),
-        #     thetadot_planned=np.array(self.data_buffers['thetadot_planned']),
-        #     target_0=np.array(self.data_buffers['target_0']),
-        #     target_1=np.array(self.data_buffers['target_1']),
-        #     theta_planned_batched=np.array(self.data_buffers['theta_planned_batched']),
-        #     thetadot_planned_batched=np.array(self.data_buffers['thetadot_planned_batched']),
-        #     cost_cgr_batched=np.array(self.data_buffers['cost_cgr_batched']),
-        #     timestamp=np.array(self.data_buffers['timestamp']),
-        # )
+    # def record_data(self):
+    #     """Save data to npy file"""
+        
 
-        np.savez(
-            self.pathes['benchmark'],
-            batch_size=np.array(self.data_buffers['batch_size']),
-            horizon=np.array(self.data_buffers['horizon']),
-            total_time=np.array(self.data_buffers['total_time_s']),
-            step_time=np.array(self.data_buffers['step_time_ms'], dtype=object),
-            success=np.array(self.data_buffers['success']),
-            reason=np.array(self.data_buffers['reason']),
-            target_0=np.array(self.data_buffers['target_0']),
-            theta=np.array(self.data_buffers['theta'], dtype=object),
-            thetadot=np.array(self.data_buffers['thetadot'], dtype=object),
-            cost_r=np.array(self.data_buffers['cost_r'], dtype=object),
-            cost_eef_to_obj=np.array(self.data_buffers['cost_eef_to_obj'], dtype=object),
-            cost_obj_to_targ=np.array(self.data_buffers['cost_obj_to_targ'], dtype=object),
-            cost_dist=np.array(self.data_buffers['cost_dist'], dtype=object),
-            cost_zy=np.array(self.data_buffers['cost_zy'], dtype=object),
-        )
-        self.data_saved = True
-        print("Saving data...")
+    #     np.savez(
+    #         self.pathes['benchmark'],
+    #         batch_size=np.array(self.data_buffers['batch_size']),
+    #         horizon=np.array(self.data_buffers['horizon']),
+    #         total_time=np.array(self.data_buffers['total_time_s']),
+    #         step_time=np.array(self.data_buffers['step_time_ms'], dtype=object),
+    #         success=np.array(self.data_buffers['success']),
+    #         reason=np.array(self.data_buffers['reason']),
+    #         target_0=np.array(self.data_buffers['target_0']),
+    #         theta=np.array(self.data_buffers['theta'], dtype=object),
+    #         thetadot=np.array(self.data_buffers['thetadot'], dtype=object),
+    #         cost_r=np.array(self.data_buffers['cost_r'], dtype=object),
+    #         cost_eef_to_obj=np.array(self.data_buffers['cost_eef_to_obj'], dtype=object),
+    #         cost_obj_to_targ=np.array(self.data_buffers['cost_obj_to_targ'], dtype=object),
+    #         cost_dist=np.array(self.data_buffers['cost_dist'], dtype=object),
+    #         cost_zy=np.array(self.data_buffers['cost_zy'], dtype=object),
+    #     )
+    #     self.data_saved = True
+    #     print("Saving data...")
 
 def main(args=None):
     rclpy.init(args=args)
