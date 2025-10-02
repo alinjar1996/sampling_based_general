@@ -178,6 +178,8 @@ class Planner(Node):
         self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
         self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
 
+        # print("self.joint_mask_vel", self.joint_mask_vel)
+
 
         if self.use_hardware:
             setup = np.load(os.path.join(PACKAGE_DIR, 'data', 'manual', 'setup', f'setup_000.npz'), allow_pickle=True)
@@ -295,9 +297,7 @@ class Planner(Node):
         start_time = time.time()
 
            
-        
-
-
+    
         # Get current state
         if self.use_hardware:
             current_pos_0 = np.array(self.rtde_r_0.getActualQ())
@@ -314,6 +314,8 @@ class Planner(Node):
         # Compute control
         self.thetadot, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(current_pos, current_vel)
         cost_height, cost_orientation, cost_velocity, cost_control = cost_list
+
+        # print("self.thetadot", self.thetadot)
 
         if self.use_hardware:
             # Send velocity command

@@ -198,7 +198,7 @@ class cem_planner():
 
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (0, None, None))
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (0, None, None, None, None, None))
-		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, None))
+		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
 		self.compute_boundary_vec_batch_single_dof = (jax.vmap(self.compute_boundary_vec_single_dof, in_axes = (0)  )) # vmap parrallelization takes place over first axis
 		self.compute_projection_batched_over_dof = jax.vmap(self.compute_projection_single_dof, in_axes=(0, 0, 0, 0, 0)) # vmap parrallelization takes place over first axis
 
@@ -602,9 +602,12 @@ class cem_planner():
 		mjx_data = mjx_data.replace(qvel=qvel, qpos=qpos)
 
 		thetadot_single = thetadot.reshape(self.num_dof, self.num)
-		_, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
+		mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
 		theta, torso_pos, collision = out
-		return theta.T.flatten(), torso_pos, collision
+		#Sensor data
+		sensor_data = mjx_data_final.sensordata
+
+		return theta.T.flatten(), torso_pos, collision, sensor_data
 
 	# @partial(jax.jit, static_argnums=(0,))
 	# def compute_rollout_single_torque(self, torques, init_pos, init_vel):
@@ -630,55 +633,39 @@ class cem_planner():
 	# 	return theta.T.flatten(), collision
 
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_cost_single(self, thetadot_single, cost_weights):
+	def compute_cost_single(self, thetadot_single, sensor_data, cost_weights):
 	
 
-		''' Common cost for both tasks '''
-
-		# # Compute collision cost for pick
-		# y = 0.1 # Higher y implies stricter condition on g to be positive
-		# collision_pick = collision[self.mask]
-		# collision_pick = collision_pick.reshape((self.num, len(collision_pick)//self.num)).T
-		# g = -collision_pick[:, 1:]+(1 - y)*collision_pick[:, :-1]
-		# cost_c_pick = jnp.sum(jnp.maximum(g, 0)) + jnp.sum(collision_pick < 0)
-
-		# # Compute collision cost for move
-		# y = 0.15 # Higher y implies stricter condition on g to be positive
-		# collision_move = collision[self.mask_move]
-		# collision_move = collision_move.reshape((self.num, len(collision_move)//self.num)).T
-		# g = -collision_move[:, 1:]+(1 - y)*collision_move[:, :-1]
-		# cost_c_move = jnp.sum(jnp.maximum(g, 0)) + jnp.sum(collision_move < 0)
-
 		# --- Inline sensor extraction ---
-		def get_torso_height() -> jax.Array:
+		def get_torso_height(sensor_data) -> jax.Array:
 			"""Get the height of the torso above the ground."""
 			sensor_adr = self.model.sensor_adr[self.torso_position_sensor]
-			return self.mjx_data.sensordata[sensor_adr + 2]  # px, py, pz
+			return sensor_data[sensor_adr + 2]  # px, py, pz
 
-		def get_torso_velocity() -> jax.Array:
+		def get_torso_velocity(sensor_data) -> jax.Array:
 			"""Get the horizontal velocity of the torso."""
 			sensor_adr = self.model.sensor_adr[self.torso_velocity_sensor]
-			return self.mjx_data.sensordata[sensor_adr]
+			return sensor_data[sensor_adr]
 
-		def get_torso_deviation_from_upright() -> jax.Array:
+		def get_torso_deviation_from_upright(sensor_data) -> jax.Array:
 			"""Get the deviation of the torso from the upright position."""
 			sensor_adr = self.model.sensor_adr[self.torso_zaxis_sensor]
-			return self.mjx_data.sensordata[sensor_adr + 2] - 1.0
+			return sensor_data[sensor_adr + 2] - 1.0
         
-		jax.debug.print("get_torso_height{}", get_torso_height())
-		jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright())
-		jax.debug.print("get_torso_velocity{}", get_torso_velocity())
+		# jax.debug.print("get_torso_height{}", get_torso_height(sensor_data))
+		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
+		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
 
 		height_cost = jnp.square(
-            get_torso_height() - self.target_height
+            get_torso_height(sensor_data) - self.target_height
         )
         
 		orientation_cost = jnp.square(
-            get_torso_deviation_from_upright()
+            get_torso_deviation_from_upright(sensor_data)
         )
 
 		velocity_cost = jnp.square(
-            get_torso_velocity() - self.target_velocity
+            get_torso_velocity(sensor_data) - self.target_velocity
         )
 
 		control_cost = jnp.sum(jnp.square(thetadot_single))
@@ -773,8 +760,8 @@ class cem_planner():
 		
 		thetadot = jnp.dot(self.A_thetadot, xi_filtered.T).T
 
-		theta, torso_pos, collision = self.compute_rollout_batch(thetadot, init_pos, init_vel)
-		cost_batch, cost_list_batch = self.compute_cost_batch(thetadot, collision)
+		theta, torso_pos, collision, sensor_data = self.compute_rollout_batch(thetadot, init_pos, init_vel)
+		cost_batch, cost_list_batch = self.compute_cost_batch(thetadot, sensor_data, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
 		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
