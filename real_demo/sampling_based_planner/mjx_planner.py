@@ -869,6 +869,7 @@ class cem_planner():
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
 		thetadot = jnp.dot(self.A_thetadot, xi_filtered.T).T
+		# thetadot = jnp.dot(self.A_thetadot, xi_samples.T).T
 
 
 		theta, eef_0, eef_vel_lin_0, eef_vel_ang_0, eef_1, eef_vel_lin_1, eef_vel_ang_1, ball, collision = self.compute_rollout_batch(thetadot, init_pos, init_vel, target_0, target_2, ball_pick_init)
