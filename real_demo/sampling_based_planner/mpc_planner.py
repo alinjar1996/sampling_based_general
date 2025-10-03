@@ -14,6 +14,7 @@ import contextlib
 from io import StringIO
 
 
+
 class run_cem_planner:
     def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
                  maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=0.05,
@@ -97,7 +98,7 @@ class run_cem_planner:
         return C
 
         
-    def compute_control(self, current_pos, current_vel):
+    def compute_control(self, sim_data, current_pos, current_vel):
         """Compute optimal control using CEM/MPC for dual-arm system"""
         
         # Handle covariance matrix numerical stability
@@ -114,11 +115,24 @@ class run_cem_planner:
         # Generate samples
         self.xi_samples, self.key = self.cem.compute_xi_samples(self.key, self.xi_mean, self.xi_cov)
 
+        # self.data = mujoco.MjData(self.model)
+        # current_mjx_data = mujoco.mjx.put_data(self.model, self.data)
+        self.mjx_model = mujoco.mjx.put_model(self.model)
+        current_mjx_data = mujoco.mjx.put_data(self.model, sim_data)
+        current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data )
+        # current_mjx_data = sim_data
 
+        # # ✅ USE THE PASSED-IN MjData (sim_data)
+        # self.mjx_model = mujoco.mjx.put_model(self.model)
+        # current_mjx_data = mujoco.mjx.put_data(self.model, sim_data)
+        # current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data)
+
+        # current_mjx_data = self.data
         # CEM computation
         cost, best_cost_list, thetadot_horizon, theta_horizon, \
         self.xi_mean, self.xi_cov, thd_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace  = self.cem.compute_cem(
+            current_mjx_data,
             self.xi_mean,
             self.xi_cov,
             current_pos,

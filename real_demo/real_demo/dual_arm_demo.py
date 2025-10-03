@@ -216,8 +216,8 @@ class Planner(Node):
 
         # Setup subscribers
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=1)
-        self.subscription_object0 = self.create_subscription(PoseStamped, '/vrpn_mocap/object1/pose', self.object0_callback, qos_profile)
-        self.subscription_obstacle0 = self.create_subscription(PoseStamped, '/vrpn_mocap/obstacle1/pose', self.obstacle0_callback, qos_profile)
+        # self.subscription_object0 = self.create_subscription(PoseStamped, '/vrpn_mocap/object1/pose', self.object0_callback, qos_profile)
+        # self.subscription_obstacle0 = self.create_subscription(PoseStamped, '/vrpn_mocap/obstacle1/pose', self.obstacle0_callback, qos_profile)
         
         # Start control timer
         self.timer = self.create_timer(self.timestep, self.control_loop)
@@ -262,7 +262,7 @@ class Planner(Node):
 
             # Fade from solid red → transparent red
             start_color = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)   # opaque red
-            end_color   = np.array([1.0, 0.0, 0.0, 0.5], dtype=np.float32)   # transparent red
+            end_color   = np.array([1.0, 0.0, 0.0, 0.2], dtype=np.float32)   # transparent red
             rgba = (1 - t) * start_color + t * end_color
 
             mujoco.mjv_initGeom(
@@ -295,7 +295,7 @@ class Planner(Node):
         
         
         # Compute control
-        self.thetadot, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(current_pos, current_vel)
+        self.thetadot, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(self.data, current_pos, current_vel)
         cost_height, cost_orientation, cost_velocity, cost_control = cost_list
         
         print("self.thetadot", self.thetadot)
@@ -315,6 +315,10 @@ class Planner(Node):
             self.data.qvel[:] = np.zeros(len(self.joint_mask_vel))
             self.data.qvel[self.joint_mask_vel] = self.thetadot
             mujoco.mj_step(self.model, self.data)
+        
+        # # ✅ CORRECTED LINES
+        # if self.data.ncon > self.model.nconmax:
+        #     self.data.ncon = self.model.nconmax
         
         # print("torso_trace_planned", torso_trace_planned)
 
@@ -351,27 +355,7 @@ class Planner(Node):
                 self.rtde_c_1.disconnect()
             print("Disconnected from UR5e Robot", flush=True)
 
-    def object0_callback(self, msg):
-        """Callback for target object pose updates"""
-
-        pose = msg.pose
-        ball_pos = np.array([-pose.position.x, -pose.position.y, pose.position.z-0.05])
-        self.data.mocap_pos[self.model.body_mocapid[self.model.body(name='ball').id]] = ball_pos
-            # mujoco.mj_forward(self.model, self.data)
-            # self.planner.update_targets(target_idx=0, target_pos=self.data.xpos[self.model.body(name="target_00").id], target_rot=self.data.xquat[self.model.body(name="target_00").id])
-            # self.planner.update_targets(target_idx=1, target_pos=self.data.xpos[self.model.body(name="target_11").id], target_rot=self.data.xquat[self.model.body(name="target_11").id])
-            # self.planner.target_2[:3] = ball_pos
-
-    def obstacle0_callback(self, msg):
-        """Callback for obstacle pose updates"""
-        pose = msg.pose
-        obstacle_pos = np.array([-pose.position.x, -pose.position.y, pose.position.z])
-        obstacle_rot = np.array([0.0, 1.0, 0, 0])
-        self.planner.update_obstacle(obstacle_pos, obstacle_rot)
-
-    # def record_data(self):
-    #     """Save data to npy file"""
-        
+         
 
     #     np.savez(
     #         self.pathes['benchmark'],

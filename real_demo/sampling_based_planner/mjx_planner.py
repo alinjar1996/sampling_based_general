@@ -196,7 +196,7 @@ class cem_planner():
 		self.torso = self.model.site(name="torso_site").id
 
 
-		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (0, None, None))
+		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (0, None, None, None, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
 		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
@@ -480,21 +480,37 @@ class cem_planner():
 	
 
 
+	# @partial(jax.jit, static_argnums=(0,))
+	# def compute_rollout_single(self, thetadot, init_pos, init_vel):
+
+	# 	mjx_data = self.mjx_data
+	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(init_vel)
+	# 	qpos = mjx_data.qpos.at[self.joint_mask_pos].set(init_pos)
+
+	# 	mjx_data = mjx_data.replace(qvel=qvel, qpos=qpos)
+
+	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
+	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
+	# 	theta, torso_pos, collision = out
+	# 	#Sensor data
+	# 	sensor_data = mjx_data_final.sensordata
+
+	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
+
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_rollout_single(self, thetadot, init_pos, init_vel):
-
-		mjx_data = self.mjx_data
-		qvel = mjx_data.qvel.at[self.joint_mask_vel].set(init_vel)
-		qpos = mjx_data.qpos.at[self.joint_mask_pos].set(init_pos)
-
-		mjx_data = mjx_data.replace(qvel=qvel, qpos=qpos)
-
+	def compute_rollout_single(self, mjx_data_current, thetadot, init_pos, init_vel):
+		# Use the passed-in current state instead of self.mjx_data
+		# mjx_data_current = self.mjx_data
+		qvel = mjx_data_current.qvel.at[self.joint_mask_vel].set(init_vel)
+		qpos = mjx_data_current.qpos.at[self.joint_mask_pos].set(init_pos)
+		
+		mjx_data = mjx_data_current.replace(qvel=qvel, qpos=qpos)
+		
 		thetadot_single = thetadot.reshape(self.num_dof, self.num)
 		mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
 		theta, torso_pos, collision = out
-		#Sensor data
 		sensor_data = mjx_data_final.sensordata
-
+		
 		return theta.T.flatten(), torso_pos, collision, sensor_data
 
 	# @partial(jax.jit, static_argnums=(0,))
@@ -627,7 +643,7 @@ class cem_planner():
 	@partial(jax.jit, static_argnums=(0,))
 	def cem_iter(self, carry,  scan_over):
 
-		xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_vel, cost_weights = carry
+		xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_vel, cost_weights, mjx_data_current = carry
 
 		xi_mean_prev = xi_mean 
 		xi_cov_prev = xi_cov
@@ -667,21 +683,23 @@ class cem_planner():
 		
 		# thetadot = jnp.dot(self.A_thetadot, xi_samples.T).T
 
-		theta, torso_pos, collision, sensor_data = self.compute_rollout_batch(thetadot, init_pos, init_vel)
+		mjx_data_current = carry[-1]
+
+		theta, torso_pos, collision, sensor_data = self.compute_rollout_batch(mjx_data_current, thetadot, init_pos, init_vel)
 		cost_batch, cost_list_batch = self.compute_cost_batch(thetadot, sensor_data, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
 		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
 		xi_samples_new, key = self.compute_xi_samples(key, xi_mean, xi_cov)
 
-		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights)
+		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
 		return carry, (cost_batch, cost_list_batch, thetadot, theta, 
 				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, torso_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cem(
-		self, xi_mean, 
+		self, current_mjx_data, xi_mean, 
 		xi_cov,
 		init_pos, 
 		init_vel, 
@@ -699,7 +717,7 @@ class cem_planner():
 		
 		key, subkey = jax.random.split(self.key)
 
-		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_vel, cost_weights)
+		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_vel, cost_weights, current_mjx_data)
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)

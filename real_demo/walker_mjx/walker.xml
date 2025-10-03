@@ -7,8 +7,8 @@
   </option>
 
   <custom>
-    <numeric data="5" name="max_contact_points"/>
-    <numeric data="5" name="max_geom_pairs"/>
+    <numeric data="10" name="max_contact_points"/>
+    <numeric data="10" name="max_geom_pairs"/>
   </custom>
 
   <default>
@@ -17,7 +17,7 @@
     <motor ctrlrange="-5 5" ctrllimited="true"/>
     <site size="0.01"/>
     <default class="walker">
-      <geom type="capsule"/>
+      <geom type="capsule" rgba="1 1 1 0.3"/>
       <joint axis="0 -1 0"/>
     </default>
   </default>
@@ -64,12 +64,12 @@
     <framezaxis    name="torso_zaxis" objtype="xbody" objname="torso"/>
   </sensor>
 
-  <!-- <actuator>
+  <actuator>
     <motor name="right_hip" joint="right_hip" gear="100"/>
     <motor name="right_knee" joint="right_knee" gear="50"/>
     <motor name="right_ankle" joint="right_ankle" gear="20"/>
     <motor name="left_hip" joint="left_hip" gear="100"/>
     <motor name="left_knee" joint="left_knee" gear="50"/>
     <motor name="left_ankle" joint="left_ankle" gear="20"/>
-  </actuator> -->
+  </actuator>
 </mujoco>
