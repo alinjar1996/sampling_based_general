@@ -22,20 +22,6 @@ from rtde_receive import RTDEReceiveInterface as RTDEReceive
 PACKAGE_DIR = get_package_share_directory('real_demo')
 np.set_printoptions(precision=4, suppress=True)
 
-# target_positions = np.array([
-#     [-0.2, 0.0, 0.3],
-#     [-0.22, 0.1, 0.25],
-#     [-0.25, -0.2, 0.3],
-#     [-0.25, -0.25, 0.3]
-# ])
-
-# init_positions = np.array([
-#     [-0.22, 0.0, 0.2],
-#     [-0.22, 0.1, 0.2],
-#     [-0.25, -0.2, 0.2],
-#     [-0.28, -0.25, 0.2]
-# ])
-
 
 class Planner(Node):
     def __init__(self):
@@ -77,33 +63,35 @@ class Planner(Node):
         self.timestep = self.get_parameter('timestep').get_parameter_value().double_value
         position_threshold = self.get_parameter('position_threshold').get_parameter_value().double_value
         rotation_threshold = self.get_parameter('rotation_threshold').get_parameter_value().double_value
-        self.num_targets = 21
+        # self.num_targets = 21
 
-        if self.record_data_:
-            self.pathes = {
-                "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'setup_{self.idx}.npz'),
-                "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_{self.idx}.npz'),
-                # "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_walker{self.idx}.npz'),
-            }
-            self.data_buffers = {
-                'batch_size': [num_batch],
-                'horizon': [num_steps],
+        
 
-                # 'target_0': [0]*self.num_targets,
-                # 'total_time_s': [0]*self.num_targets,
-                # 'success': [0]*self.num_targets,
-                # 'reason': [0]*self.num_targets,
+        # if self.record_data_:
+        #     self.pathes = {
+        #         "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'setup_{self.idx}.npz'),
+        #         "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_{self.idx}.npz'),
+        #         # "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_walker{self.idx}.npz'),
+        #     }
+        #     self.data_buffers = {
+        #         'batch_size': [num_batch],
+        #         'horizon': [num_steps],
 
-                # 'step_time_ms': [[] for _ in range(self.num_targets)],
-                # 'theta': [[] for _ in range(self.num_targets)],
-                # 'thetadot': [[] for _ in range(self.num_targets)],
+        #         # 'target_0': [0]*self.num_targets,
+        #         # 'total_time_s': [0]*self.num_targets,
+        #         # 'success': [0]*self.num_targets,
+        #         # 'reason': [0]*self.num_targets,
 
-                # 'cost_r': [[] for _ in range(self.num_targets)],
-                # 'cost_eef_to_obj': [[] for _ in range(self.num_targets)],
-                # 'cost_obj_to_targ': [[] for _ in range(self.num_targets)],
-                # 'cost_dist': [[] for _ in range(self.num_targets)],
-                # 'cost_zy': [[] for _ in range(self.num_targets)],
-            }
+        #         # 'step_time_ms': [[] for _ in range(self.num_targets)],
+        #         # 'theta': [[] for _ in range(self.num_targets)],
+        #         # 'thetadot': [[] for _ in range(self.num_targets)],
+
+        #         # 'cost_r': [[] for _ in range(self.num_targets)],
+        #         # 'cost_eef_to_obj': [[] for _ in range(self.num_targets)],
+        #         # 'cost_obj_to_targ': [[] for _ in range(self.num_targets)],
+        #         # 'cost_dist': [[] for _ in range(self.num_targets)],
+        #         # 'cost_zy': [[] for _ in range(self.num_targets)],
+        #     }
 
 
 
@@ -111,7 +99,7 @@ class Planner(Node):
 
         cost_weights = {
             'height': 100.0,
-			'orientation': 10.0,
+			'orientation': 100.0,
             'velocity': 100.0,
             'control': 0.0
         }
@@ -119,31 +107,27 @@ class Planner(Node):
 
         self.thetadot = np.zeros(self.num_dof)
 
-        # Initialize robot connection
-        self.rtde_c_0 = None
-        self.rtde_r_0 = None
-
-        self.rtde_c_1 = None
-        self.rtde_r_1 = None
-
-        self.grippers = {
-            '0': {
-                'srv': None,
-                'state': 'open'
-            },
-            '1': {
-                'srv': None,
-                'state': 'open'
-            }
-        }
-
-        if self.use_hardware:
-            self.initialize_robot_connection()
+        
         
         # Initialize MuJoCo model and data
         model_path = os.path.join(get_package_share_directory('real_demo'), 'walker_mjx', 'scene.xml')
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.model.opt.timestep = self.timestep
+
+         # Get sensor ids (similar to your cem_planner example)
+        self.torso_position_sensor = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_position"
+        )
+        self.torso_velocity_sensor = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_subtreelinvel"
+        )
+        self.torso_zaxis_sensor = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_zaxis"
+        )
+        
+        print(f"Sensor IDs - Position: {self.torso_position_sensor}, "
+              f"Velocity: {self.torso_velocity_sensor}, "
+              f"Z-axis: {self.torso_zaxis_sensor}")
   
         joint_names_pos = list()
         joint_names_vel = list()
@@ -161,9 +145,9 @@ class Planner(Node):
         # robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
         #                         'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
         
-        robot_joints = np.array(['right_hip', 'right_knee', 
-                        'right_ankle', 'left_hip', 
-                        'left_knee', 'left_ankle'])
+        robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
+                         'left_hip', 'left_knee', 'left_ankle'])
+                         
         self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
         self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
 
@@ -209,8 +193,8 @@ class Planner(Node):
         
         # Setup viewer
         self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
-        # self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-        self.viewer.cam.distance = 4.0 
+        self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
+        self.viewer.cam.distance = 5.0 
         self.viewer.cam.azimuth = 90.0 
         self.viewer.cam.elevation = -30.0 
 
@@ -262,7 +246,7 @@ class Planner(Node):
 
             # Fade from solid red → transparent red
             start_color = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)   # opaque red
-            end_color   = np.array([1.0, 0.0, 0.0, 0.2], dtype=np.float32)   # transparent red
+            end_color   = np.array([1.0, 0.0, 0.0, 0.1], dtype=np.float32)   # transparent red
             rgba = (1 - t) * start_color + t * end_color
 
             mujoco.mjv_initGeom(
@@ -282,16 +266,9 @@ class Planner(Node):
            
     
         # Get current state
-        if self.use_hardware:
-            current_pos_0 = np.array(self.rtde_r_0.getActualQ())
-            current_pos_1 = np.array(self.rtde_r_1.getActualQ())
-
-            current_pos = np.concatenate((current_pos_0, current_pos_1), axis=None)
-            # current_pos = self.data.qpos[self.joint_mask_pos]
-            current_vel = self.thetadot
-        else:
-            current_pos = self.data.qpos[self.joint_mask_pos]
-            current_vel = self.thetadot
+        
+        current_pos = self.data.qpos[self.joint_mask_pos]
+        current_vel = self.thetadot
         
         
         # Compute control
@@ -300,27 +277,22 @@ class Planner(Node):
         
         print("self.thetadot", self.thetadot)
 
-        if self.use_hardware:
-            # Send velocity command
-            self.rtde_c_0.speedJ(self.thetadot[:self.planner.num_dof//2], acceleration=1, time=0.1)
-            self.rtde_c_1.speedJ(self.thetadot[self.planner.num_dof//2:], acceleration=1, time=0.1)
+       
+        self.data.qvel[:] = np.zeros(len(self.joint_mask_vel))
+        self.data.qvel[self.joint_mask_vel] = self.thetadot
+        # print("self.data.qvel", self.data.qvel)
 
-            # Update MuJoCo state
-            current_pos = np.concatenate((np.array(self.rtde_r_0.getActualQ()), np.array(self.rtde_r_1.getActualQ())), axis=None)
-            self.data.qpos[self.joint_mask_pos] = current_pos
-            self.data.qvel[:] = np.zeros(len(self.joint_mask_vel))
-            self.data.qvel[self.joint_mask_vel] = self.thetadot
-            mujoco.mj_step(self.model, self.data)
-        else:
-            self.data.qvel[:] = np.zeros(len(self.joint_mask_vel))
-            self.data.qvel[self.joint_mask_vel] = self.thetadot
-            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_step(self.model, self.data)
         
-        # # ✅ CORRECTED LINES
+
+        
         # if self.data.ncon > self.model.nconmax:
         #     self.data.ncon = self.model.nconmax
         
         # print("torso_trace_planned", torso_trace_planned)
+
+        # Print sensor data
+        self.print_sensor_data()
 
         self.render_trace(self.viewer, torso_trace_planned[:,:3])
 
@@ -338,6 +310,7 @@ class Planner(Node):
               f'\n| Cost_Velocity: {np.round(cost_velocity, 2)} ', 
               f'\n| Cost_Control: {np.round(cost_control, 2)} ', flush=True)
         
+        print("=" * 40)
         time_until_next_step = self.model.opt.timestep - (time.time() - start_time)
         if time_until_next_step > 0:
             time.sleep(time_until_next_step) 
@@ -376,6 +349,30 @@ class Planner(Node):
     #     )
     #     self.data_saved = True
     #     print("Saving data...")
+    
+    def print_sensor_data(self):
+        """Print sensor data similar to your cem_planner example"""
+        sensor_data = self.data.sensordata
+        
+        # Extract sensor values using sensor_adr (same approach as in compute_cost_single)
+        def get_sensor_value(sensor_id, index=0):
+            sensor_adr = self.model.sensor_adr[sensor_id]
+            sensor_dim = self.model.sensor_dim[sensor_id]
+            if sensor_dim == 1:
+                return sensor_data[sensor_adr]
+            else:
+                return sensor_data[sensor_adr:sensor_adr + sensor_dim]
+        
+        # Get sensor values
+        torso_pos = get_sensor_value(self.torso_position_sensor)
+        torso_vel = get_sensor_value(self.torso_velocity_sensor) 
+        torso_zaxis = get_sensor_value(self.torso_zaxis_sensor)
+        
+        print(f"\n=== MUJOCO SENSORS ===")
+        print(f"Torso Position: {torso_pos}")
+        print(f"Torso Velocity: {torso_vel}")
+        print(f"Torso Z-axis: {torso_zaxis}")
+        print("=" * 20)
 
 def main(args=None):
     rclpy.init(args=args)

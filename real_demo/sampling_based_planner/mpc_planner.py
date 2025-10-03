@@ -17,7 +17,7 @@ from io import StringIO
 
 class run_cem_planner:
     def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
-                 maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=0.05,
+                 maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=None,
                  position_threshold=0.06, rotation_threshold=0.1,
                  ik_pos_thresh=0.08, ik_rot_thresh=0.1, 
                  collision_free_ik_dt=2.0, inference=False, rnn=None,
@@ -64,7 +64,7 @@ class run_cem_planner:
         
         # Initialize CEM variables
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
-        self.xi_cov_single = 1*jnp.identity(self.cem.nvar_single)
+        self.xi_cov_single = 10*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
         self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.xi_cov_single)
         self.lamda_init = jnp.zeros((num_batch, self.cem.nvar))
@@ -119,15 +119,9 @@ class run_cem_planner:
         # current_mjx_data = mujoco.mjx.put_data(self.model, self.data)
         self.mjx_model = mujoco.mjx.put_model(self.model)
         current_mjx_data = mujoco.mjx.put_data(self.model, sim_data)
-        current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data )
+        # current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data )
         # current_mjx_data = sim_data
 
-        # # ✅ USE THE PASSED-IN MjData (sim_data)
-        # self.mjx_model = mujoco.mjx.put_model(self.model)
-        # current_mjx_data = mujoco.mjx.put_data(self.model, sim_data)
-        # current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data)
-
-        # current_mjx_data = self.data
         # CEM computation
         cost, best_cost_list, thetadot_horizon, theta_horizon, \
         self.xi_mean, self.xi_cov, thd_all, th_all, avg_primal_res, avg_fixed_res, \
@@ -144,14 +138,10 @@ class run_cem_planner:
             self.cost_weights,
         )
 
+
         # Get mean velocity command (average middle 90% of trajectory)
         thetadot_cem = np.mean(thetadot_horizon[1:6], axis=0)
 
-        thetadot_0 = thetadot_cem[:6]
-        thetadot_1 = thetadot_cem[6:]
-        
-
-        # Combine control commands
-        thetadot = np.concatenate((thetadot_0, thetadot_1))
+        thetadot = thetadot_cem
         
         return thetadot, cost, best_cost_list, thetadot_horizon, theta_horizon, torso_trace_planned

@@ -150,13 +150,26 @@ class cem_planner():
 
 		# robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
 		# 				'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
-		robot_joints = np.array(['right_hip', 'right_knee', 
-						        'right_ankle', 'left_hip', 
-								'left_knee', 'left_ankle'])
+		
+	
+		robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
+                         'left_hip', 'left_knee', 'left_ankle'])
 		
 		self.joint_mask_pos = np.isin(np.array(joint_names_pos), robot_joints)
 		self.joint_mask_vel = np.isin(np.array(joint_names_vel), robot_joints)
 		self.joint_mask_ctrl = np.isin(np.array(joint_names_ctrl), robot_joints)
+
+		# # Add this after your existing joint mask code in __init__
+		# print("\n=== DEBUG: JOINT MASKS ===")
+		# print("Position-controlled joints:")
+		# for i, name in enumerate(joint_names_pos):
+		# 	print(f"  {i}: '{name}' -> controlled: {self.joint_mask_pos[i]}")
+
+		print("\nVelocity-controlled joints:")  
+		for i, name in enumerate(joint_names_vel):
+			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_vel[i]}")
+
+		# print("\nRobot joints:", robot_joints)
 
 		self.geom_ids = []
 		
@@ -200,7 +213,7 @@ class cem_planner():
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (0, None, None, None, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
 		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
-
+          
 		self.print_info()
 
 
@@ -560,15 +573,15 @@ class cem_planner():
 		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
 		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
 
-		height_cost = jnp.square(
+		height_cost = jnp.abs(
             get_torso_height(sensor_data) - self.target_height
         )
         
-		orientation_cost = jnp.square(
+		orientation_cost = jnp.abs(
             get_torso_deviation_from_upright(sensor_data)
         )
 
-		velocity_cost = jnp.square(
+		velocity_cost = jnp.abs(
             get_torso_velocity(sensor_data) - self.target_velocity
         )
 
