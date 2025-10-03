@@ -77,7 +77,7 @@ class Visualizer(Node):
 
 
         self.model = mujoco.MjModel.from_xml_path(model_path)
-        self.model.opt.timestep = 0.1
+        self.model.opt.timestep = 0.01
 
         joint_names_pos = list()
         joint_names_vel = list()

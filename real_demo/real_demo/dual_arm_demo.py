@@ -110,24 +110,13 @@ class Planner(Node):
         self.target_idx = 0
 
         cost_weights = {
-            'collision': 500,
-			'theta': 0.3,
-			'z-axis': 10.0,
-            'velocity': 0.1,
-            'distance': 5.0,
-
-            # 'allign': 2.0,
-            'orientation': 4.0,
-            'eef_to_obj': 7.0,
-            'obj_to_targ': 3.0,
-
-            'pick': 0,
-            'move': 0
+            'height': 100.0,
+			'orientation': 10.0,
+            'velocity': 100.0,
+            'control': 0.0
         }
 
-        self.grab_pos_thresh = 0.02
-        self.grab_rot_thresh = 0.1
-        self.grab_dist_thresh = 0.05
+
         self.thetadot = np.zeros(self.num_dof)
 
         # Initialize robot connection
@@ -221,7 +210,7 @@ class Planner(Node):
         # Setup viewer
         self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
         # self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-        self.viewer.cam.distance = 5.0 
+        self.viewer.cam.distance = 4.0 
         self.viewer.cam.azimuth = 90.0 
         self.viewer.cam.elevation = -30.0 
 
@@ -233,56 +222,49 @@ class Planner(Node):
         # Start control timer
         self.timer = self.create_timer(self.timestep, self.control_loop)
 
-    # def render_trace(self, viewer_, torso_trace_positions):
-
-    #     """Render the end-effector trajectory trace in the viewer."""
-    #     # Clear any existing overlay geoms
-    #     viewer_.user_scn.ngeom = 0
-    #     for trace in torso_trace_positions:
-    #         # Add spheres for each position in the trace
-    #         for pos in trace:
-    #             # Create a new geom in the user scene
-    #             geom_id = viewer_.user_scn.ngeom
-    #             viewer_.user_scn.ngeom += 1
-    
-    #             # Initialize the geom properties
-    #             mujoco.mjv_initGeom(
-    #                 viewer_.user_scn.geoms[geom_id],
-    #                 type=mujoco.mjtGeom.mjGEOM_SPHERE,
-    #                 size = np.array([0.01, 0.01, 0.01], dtype=np.float64),      # sphere radius
-    #                 pos = np.array(pos, dtype=np.float64).reshape(3),           # position (x,y,z)
-    #                 mat = np.eye(3, dtype=np.float64).flatten(),                # identity rotation (9,)
-    #                 rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)    # color RGBA 
-    #             )
-            
-    #         # size=[0.01, 0.01, 0.01],  # radius 1 cm sphere
-    #         # pos=pos,
-    #         # mat=np.eye(3).flatten(),
-    #         # rgba=[0, 0, 1, 0.5]  
-
-    #         #     # Ensure correct numpy types for MuJoCo
-    #         # size = np.array([0.01, 0.01, 0.01], dtype=np.float64)      # sphere radius
-    #         # pos = np.array(pos, dtype=np.float64).reshape(3)           # position (x,y,z)
-    #         # mat = np.eye(3, dtype=np.float64).flatten()                # identity rotation (9,)
-    #         # rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)    # color RGBA
 
     def render_trace(self, viewer_, torso_trace_positions):
         """Render the end-effector trajectory trace in the viewer."""
         # Clear any existing overlay geoms
         viewer_.user_scn.ngeom = 0
 
-        for pos in torso_trace_positions:   # each pos is already [x,y,z]
-            # Create a new geom in the user scene
+        # for pos in torso_trace_positions:   # each pos is already [x,y,z]
+        #     # Create a new geom in the user scene
+        #     geom_id = viewer_.user_scn.ngeom
+        #     viewer_.user_scn.ngeom += 1
+
+        #     # Ensure correct numpy types for MuJoCo
+        #     size = np.array([0.02, 0.02, 0.02], dtype=np.float64)
+        #     pos = np.array(pos, dtype=np.float64).reshape(3)
+        #     mat = np.eye(3, dtype=np.float64).flatten()
+        #     rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)
+
+        #     # Initialize the geom properties
+        #     mujoco.mjv_initGeom(
+        #         viewer_.user_scn.geoms[geom_id],
+        #         mujoco.mjtGeom.mjGEOM_SPHERE,
+        #         size,
+        #         pos,
+        #         mat,
+        #         rgba
+        #     )
+
+        for i, pos in enumerate(torso_trace_positions):
             geom_id = viewer_.user_scn.ngeom
             viewer_.user_scn.ngeom += 1
 
-            # Ensure correct numpy types for MuJoCo
-            size = np.array([0.01, 0.01, 0.01], dtype=np.float64)
+            size = np.array([0.02, 0.02, 0.02], dtype=np.float64)
             pos = np.array(pos, dtype=np.float64).reshape(3)
             mat = np.eye(3, dtype=np.float64).flatten()
-            rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)
 
-            # Initialize the geom properties
+            # Interpolation factor [0..1]
+            t = i / (len(torso_trace_positions) - 1 + 1e-9)
+
+            # Fade from solid red → transparent red
+            start_color = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)   # opaque red
+            end_color   = np.array([1.0, 0.0, 0.0, 0.5], dtype=np.float32)   # transparent red
+            rgba = (1 - t) * start_color + t * end_color
+
             mujoco.mjv_initGeom(
                 viewer_.user_scn.geoms[geom_id],
                 mujoco.mjtGeom.mjGEOM_SPHERE,
@@ -291,6 +273,7 @@ class Planner(Node):
                 mat,
                 rgba
             )
+
 
     def control_loop(self):
         """Main control loop running at fixed interval"""
@@ -314,8 +297,8 @@ class Planner(Node):
         # Compute control
         self.thetadot, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(current_pos, current_vel)
         cost_height, cost_orientation, cost_velocity, cost_control = cost_list
-
-        # print("self.thetadot", self.thetadot)
+        
+        print("self.thetadot", self.thetadot)
 
         if self.use_hardware:
             # Send velocity command
@@ -345,7 +328,11 @@ class Planner(Node):
         print(f'\n| Target idx: {self.target_idx} '
               f'\n| Total time: {"%.0f"%(time.time() - self.traj_time_start)}s '
               f'\n| Step Time: {"%.0f"%((time.time() - start_time)*1000)}ms '
-              f'\n| Cost: {np.round(cost, 2)} ', flush=True)
+              f'\n| Cost: {np.round(cost, 2)} '
+              f'\n| Cost_Height: {np.round(cost_height, 2)} ',
+              f'\n| Cost_Orientation: {np.round(cost_orientation, 2)} ', 
+              f'\n| Cost_Velocity: {np.round(cost_velocity, 2)} ', 
+              f'\n| Cost_Control: {np.round(cost_control, 2)} ', flush=True)
         
         time_until_next_step = self.model.opt.timestep - (time.time() - start_time)
         if time_until_next_step > 0:

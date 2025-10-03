@@ -20,8 +20,8 @@ class run_cem_planner:
                  position_threshold=0.06, rotation_threshold=0.1,
                  ik_pos_thresh=0.08, ik_rot_thresh=0.1, 
                  collision_free_ik_dt=2.0, inference=False, rnn=None,
-                 max_joint_pos=180.0*np.pi/180.0, max_joint_vel=1.0, 
-                 max_joint_acc=2.0, max_joint_jerk=4.0,
+                 max_joint_pos=180.0*np.pi/180.0, max_joint_vel=5.0, 
+                 max_joint_acc=10.0, max_joint_jerk=15.0,
                  device='cuda', cost_weights=None):
         
         # Initialize parameters
@@ -63,7 +63,7 @@ class run_cem_planner:
         
         # Initialize CEM variables
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
-        self.xi_cov_single = 10*jnp.identity(self.cem.nvar_single)
+        self.xi_cov_single = 1*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
         self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.xi_cov_single)
         self.lamda_init = jnp.zeros((num_batch, self.cem.nvar))
@@ -78,25 +78,24 @@ class run_cem_planner:
         # self.tcp_id_1 = model.site(name="tcp_1").id
         # self.hande_id_1 = model.body(name="hande_1").id
 
-        self.torso = model.site(name="torso_site").id
         
-        
+    def repair_cov(self, C):
+        epsilon = 1e-5
+        eigenvalues, eigenvectors = np.linalg.eigh(C)
+        min_eigenvalue = np.min(eigenvalues)
 
-    # def update_targets(self, target_idx=0, target_pos=None, target_rot=None):
-    #     """Update target positions and rotations for both arms"""
-    #     if target_idx==0:
-    #         self.target_pos_0 = target_pos
-    #         self.target_rot_0 = target_rot
-    #         self.target_0 = np.concatenate([self.target_pos_0, self.target_rot_0])
-    #     elif target_idx==1:
-    #         self.target_pos_1 = target_pos
-    #         self.target_rot_1 = target_rot
-    #         self.target_1 = np.concatenate([self.target_pos_1, self.target_rot_1])
+        if min_eigenvalue < epsilon:
+            print("REPAIR COV =========================", flush=True)
+            # Clip negative eigenvalues
+            clipped = np.where(eigenvalues < epsilon, epsilon, eigenvalues)
+            D_prime = np.diag(clipped)
+            C_repaired = eigenvectors @ D_prime @ eigenvectors.T
+            # C_repaired = (C_repaired + C_repaired.T) / 2
+            return C_repaired
         
-    # def update_obstacle(self, obstacle_pos, obstacle_rot):
-    #     """Update obstacle position and rotation"""
-    #     self.obstacle_pos = obstacle_pos
-    #     self.obstacle_rot = obstacle_rot
+        # C = (C + C.T) / 2
+        return C
+
         
     def compute_control(self, current_pos, current_vel):
         """Compute optimal control using CEM/MPC for dual-arm system"""
