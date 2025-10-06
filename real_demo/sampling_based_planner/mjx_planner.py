@@ -48,7 +48,7 @@ class cem_planner():
 		self.nvar_single = jnp.shape(self.P_jax)[1]
 		self.nvar = self.nvar_single*self.num_dof 
   
-		self.rho_ineq = 10.0
+		self.rho_ineq = 20.0
 		self.rho_projection = 1.0
 
 		self.A_projection = jnp.identity(self.nvar)
@@ -204,7 +204,7 @@ class cem_planner():
             self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_zaxis"
         )
 		self.target_velocity = 1.5
-		self.target_height = 1.2
+		self.target_height = 1.25
 
 		self.torso = self.model.site(name="torso_site").id
 
@@ -229,7 +229,7 @@ class cem_planner():
 			f'\n Time per trajectory: {self.t_fin}',
 			f'\n Number of variables: {self.nvar}',
 			f'\n Number of Total constraints: {self.num_total_constraints}',
-			f'\n Number of geomteric IDs for colllision: {len(self.geom_ids_all)}'
+			# f'\n Number of geomteric IDs for colllision: {len(self.geom_ids_all)}'
 		    # f'\n{self.mask.sum()} / {self.mask.shape[0]} contacts involve robot.'
 		)
 
@@ -573,15 +573,15 @@ class cem_planner():
 		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
 		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
 
-		height_cost = jnp.abs(
+		height_cost = jnp.square(
             get_torso_height(sensor_data) - self.target_height
         )
         
-		orientation_cost = jnp.abs(
+		orientation_cost = jnp.square(
             get_torso_deviation_from_upright(sensor_data)
         )
 
-		velocity_cost = jnp.abs(
+		velocity_cost = jnp.square(
             get_torso_velocity(sensor_data) - self.target_velocity
         )
 

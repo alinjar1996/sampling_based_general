@@ -64,7 +64,7 @@ class run_cem_planner:
         
         # Initialize CEM variables
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
-        self.xi_cov_single = 50*jnp.identity(self.cem.nvar_single)
+        self.xi_cov_single = 500*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
         self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.xi_cov_single)
         self.lamda_init = jnp.zeros((num_batch, self.cem.nvar))
@@ -140,7 +140,7 @@ class run_cem_planner:
 
 
         # Get mean velocity command (average middle 90% of trajectory)
-        thetadot_cem = np.mean(thetadot_horizon[1:6], axis=0)
+        thetadot_cem = np.mean(thetadot_horizon[1:int(0.8*self.num_steps)], axis=0)
 
         thetadot = thetadot_cem
         

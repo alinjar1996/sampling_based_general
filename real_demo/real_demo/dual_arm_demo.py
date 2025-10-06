@@ -98,10 +98,10 @@ class Planner(Node):
         self.target_idx = 0
 
         cost_weights = {
-            'height': 100.0,
-			'orientation': 100.0,
+            'height': 1.0,
+			'orientation': 1.0,
             'velocity': 100.0,
-            'control': 0.0
+            'control': 0.1
         }
 
 
@@ -245,8 +245,8 @@ class Planner(Node):
             t = i / (len(torso_trace_positions) - 1 + 1e-9)
 
             # Fade from solid red → transparent red
-            start_color = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)   # opaque red
-            end_color   = np.array([1.0, 0.0, 0.0, 0.1], dtype=np.float32)   # transparent red
+            start_color = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)   #  red
+            end_color   = np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float32)   # green
             rgba = (1 - t) * start_color + t * end_color
 
             mujoco.mjv_initGeom(

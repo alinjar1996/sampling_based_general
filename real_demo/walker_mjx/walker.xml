@@ -64,12 +64,12 @@
     <framezaxis    name="torso_zaxis" objtype="xbody" objname="torso"/>
   </sensor>
 
-  <actuator>
+  <!-- <actuator>
     <motor name="right_hip" joint="right_hip" gear="100"/>
     <motor name="right_knee" joint="right_knee" gear="50"/>
     <motor name="right_ankle" joint="right_ankle" gear="20"/>
     <motor name="left_hip" joint="left_hip" gear="100"/>
     <motor name="left_knee" joint="left_knee" gear="50"/>
     <motor name="left_ankle" joint="left_ankle" gear="20"/>
-  </actuator>
+  </actuator> -->
 </mujoco>
