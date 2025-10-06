@@ -48,7 +48,7 @@ class cem_planner():
 		self.nvar_single = jnp.shape(self.P_jax)[1]
 		self.nvar = self.nvar_single*self.num_dof 
   
-		self.rho_ineq = 5.0
+		self.rho_ineq = 10.0
 		self.rho_projection = 1.0
 
 		self.A_projection = jnp.identity(self.nvar)
@@ -310,7 +310,7 @@ class cem_planner():
 
 		init_pos_batch = jnp.tile(init_pos, (self.num_batch, 1))  # (num_batch, 1)
         
-		# # Calculate bounds for each joint and each batch
+		# Calculate bounds for each joint and each batch
     	# # Upper bounds: p_max - init_pos, Lower bounds: p_max + init_pos (assuming symmetric limits)
 		# b_pos_upper = (self.p_max - init_pos_batch)  # shape (num_batch, 1)
 		# b_pos_lower = (self.p_max + init_pos_batch)  # shape (num_batch, 1)
@@ -685,8 +685,8 @@ class cem_planner():
 		
 		# xi_filtered = xi_filtered.transpose(1, 0, 2).reshape(self.num_batch, -1) # shape: (B, num*num_dof)
 		
-		primal_residuals = jnp.linalg.norm(primal_residuals, axis = 0)
-		fixed_point_residuals = jnp.linalg.norm(fixed_point_residuals, axis = 0)
+		# primal_residuals = jnp.linalg.norm(primal_residuals, axis = 0)
+		# fixed_point_residuals = jnp.linalg.norm(fixed_point_residuals, axis = 0)
 				
 		avg_res_primal = jnp.sum(primal_residuals, axis = 0)/self.maxiter_projection
     	
