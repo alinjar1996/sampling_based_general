@@ -32,7 +32,7 @@ class cem_planner():
 
 		self.t_fin = self.num*self.t
 		# self.init_joint_position = np.array([1.5, -1.8, 1.75, -1.25, -1.6, 0, -1.5, -1.8, 1.75, -1.25, -1.6, 0])
-		self.init_joint_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+		self.init_joint_position = np.array([0.0])
 		
 		tot_time = np.linspace(0, self.t_fin, self.num)
 		self.tot_time = tot_time
@@ -153,8 +153,7 @@ class cem_planner():
 		# 				'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
 		
 	
-		robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
-                         'left_hip', 'left_knee', 'left_ankle'])
+		robot_joints = np.array(['pendulum_joint'])
 		
 		self.joint_mask_pos = np.isin(np.array(joint_names_pos), robot_joints)
 		self.joint_mask_vel = np.isin(np.array(joint_names_vel), robot_joints)
@@ -172,9 +171,9 @@ class cem_planner():
 		# for i, name in enumerate(joint_names_pos):
 		# 	print(f"  {i}: '{name}' -> controlled: {self.joint_mask_pos[i]}")
 
-		print("\nVelocity-controlled joints:")  
-		for i, name in enumerate(joint_names_vel):
-			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_vel[i]}")
+		print("\Torque-controlled joints:")  
+		for i, name in enumerate(joint_names_ctrl):
+			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_ctrl[i]}")
 
 		# print("\nRobot joints:", robot_joints)
 
@@ -200,20 +199,9 @@ class cem_planner():
 		
 		# self.hande_id_0 = self.model.body(name="hande_0").id
 
-				# Get sensor ids
-		self.torso_position_sensor = mujoco.mj_name2id(
-			self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_position"
-        )
-		self.torso_velocity_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_subtreelinvel"
-        )
-		self.torso_zaxis_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_zaxis"
-        )
-		self.target_velocity = 1.5
-		self.target_height = 1.25
 
-		self.torso = self.model.site(name="torso_site").id
+
+		self.tip = self.model.site(name="tip").id
 
 
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
@@ -496,16 +484,14 @@ class cem_planner():
 		# Get joint positions and end-effector states
 		theta = mjx_data.qpos[self.joint_mask_pos]
 
-		torso_pos = mjx_data.site_xpos[self.torso]
+		tip_pos = mjx_data.site_xpos[self.tip]
 		
 		# Collision detection
 		# collision = mjx_data.contact.dist[self.mask]
-		collision = mjx_data.contact.dist
 
 		return mjx_data, (
 			theta, 
-			torso_pos,
-			collision
+			tip_pos
 		)
 	
 
@@ -563,59 +549,39 @@ class cem_planner():
 		# Call self.mjx_step_torque instead of self.mjx_step.
 		mjx_data_final, out = jax.lax.scan(self.mjx_step_torque, mjx_data, torque_single.T, length=self.num)
 		
-		theta, torso_pos, collision = out
+		theta, tip_pos = out
 
-		sensor_data = mjx_data_final.sensordata
+		# sensor_data = mjx_data_final.sensordata
 		
-		return theta.T.flatten(), torso_pos, collision, sensor_data
+		return theta.T.flatten(), tip_pos
 
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_cost_single(self, torque_single, sensor_data, cost_weights):
+	def compute_cost_single(self, torque_single, theta, cost_weights):
 	
 
-		# --- Inline sensor extraction ---
-		def get_torso_height(sensor_data) -> jax.Array:
-			"""Get the height of the torso above the ground."""
-			sensor_adr = self.model.sensor_adr[self.torso_position_sensor]
-			return sensor_data[sensor_adr + 2]  # px, py, pz
+		# # --- Inline sensor extraction ---
+		# def get_torso_height(sensor_data) -> jax.Array:
+		# 	"""Get the height of the torso above the ground."""
+		# 	sensor_adr = self.model.sensor_adr[self.torso_position_sensor]
+		# 	return sensor_data[sensor_adr + 2]  # px, py, pz
+		
+		def _distance_to_upright(theta) -> jax.Array:
+			"""Get a measure of distance to the upright position."""
+			theta_ = theta - jnp.pi
+			# jax.debug.print("theta {}", theta)
+			theta_err = jnp.array([jnp.cos(theta_) - 1, jnp.sin(theta_)])
+			# jax.debug.print("theta_err {}", theta_err)
+			return jnp.sum(jnp.square(theta_err))
 
-		def get_torso_velocity(sensor_data) -> jax.Array:
-			"""Get the horizontal velocity of the torso."""
-			sensor_adr = self.model.sensor_adr[self.torso_velocity_sensor]
-			return sensor_data[sensor_adr]
-
-		def get_torso_deviation_from_upright(sensor_data) -> jax.Array:
-			"""Get the deviation of the torso from the upright position."""
-			sensor_adr = self.model.sensor_adr[self.torso_zaxis_sensor]
-			return sensor_data[sensor_adr + 2] - 1.0
-        
-		# jax.debug.print("get_torso_height{}", get_torso_height(sensor_data))
-		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
-		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
-
-		height_cost = jnp.square(
-            get_torso_height(sensor_data) - self.target_height
-        )
-        
-		orientation_cost = jnp.square(
-            get_torso_deviation_from_upright(sensor_data)
-        )
-
-		velocity_cost = jnp.square(
-            get_torso_velocity(sensor_data) - self.target_velocity
-        )
+		theta_cost = _distance_to_upright(theta)
 
 		control_cost = jnp.sum(jnp.square(torque_single))
-
 		cost = (
-			cost_weights['height'] * height_cost + cost_weights['orientation'] * orientation_cost 
-			+ cost_weights['velocity'] * velocity_cost + cost_weights['control']*control_cost
+			cost_weights['theta'] * theta_cost + cost_weights['control'] * control_cost 
 		)	
 
 		cost_list = jnp.array([
-			cost_weights['height'] * height_cost, 
-			cost_weights['orientation'] * orientation_cost,
-			cost_weights['velocity'] * velocity_cost,
+			cost_weights['theta'] * theta_cost, 
 			cost_weights['control'] * control_cost
 		])
 
@@ -718,8 +684,8 @@ class cem_planner():
 
 		mjx_data_current = carry[-1]
 
-		theta, torso_pos, collision, sensor_data = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
-		cost_batch, cost_list_batch = self.compute_cost_batch(torque, sensor_data, cost_weights)
+		theta, tip_pos = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
+		cost_batch, cost_list_batch = self.compute_cost_batch(torque, theta, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
 		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
@@ -728,7 +694,7 @@ class cem_planner():
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
 		return carry, (cost_batch, cost_list_batch, torque, theta, 
-				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, torso_pos)
+				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, tip_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cem(
@@ -755,7 +721,7 @@ class cem_planner():
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
-		cost_batch, cost_list_batch, torque, theta, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, torso_pos = out
+		cost_batch, cost_list_batch, torque, theta, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, tip_pos = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
@@ -770,7 +736,7 @@ class cem_planner():
 		xi_cov = carry[1]
 
 
-		torso_pos_planned = torso_pos[-1][idx_min]
+		tip_pos_planned = tip_pos[-1][idx_min]
 
 	    
 		return (
@@ -787,6 +753,6 @@ class cem_planner():
 			primal_residuals,
 			fixed_point_residuals,
 			idx_min,
-			torso_pos_planned,
-			torso_pos
+			tip_pos_planned,
+			tip_pos
 		)

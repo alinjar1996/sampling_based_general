@@ -35,9 +35,6 @@ class Planner(Node):
         self.declare_parameter('num_steps', 15)
         self.declare_parameter('maxiter_cem', 1)
         self.declare_parameter('maxiter_projection', 5)
-        self.declare_parameter('w_pos', 3.0)
-        self.declare_parameter('w_rot', 0.5)
-        self.declare_parameter('w_col', 500.0)
         self.declare_parameter('num_elite', 0.05)
         self.declare_parameter('timestep', 0.1)
         self.declare_parameter('position_threshold', 0.06)
@@ -50,15 +47,12 @@ class Planner(Node):
         self.idx = str(self.idx).zfill(2)
 
         # Planner params
-        self.num_dof = 6
-        self.init_joint_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.num_dof = 1
+        self.init_joint_position = np.array([0.0])
         num_batch = self.get_parameter('num_batch').get_parameter_value().integer_value
         num_steps = self.get_parameter('num_steps').get_parameter_value().integer_value
         maxiter_cem = self.get_parameter('maxiter_cem').get_parameter_value().integer_value
         maxiter_projection = self.get_parameter('maxiter_projection').get_parameter_value().integer_value
-        w_pos = self.get_parameter('w_pos').get_parameter_value().double_value
-        w_rot = self.get_parameter('w_rot').get_parameter_value().double_value
-        w_col = self.get_parameter('w_col').get_parameter_value().double_value
         num_elite = self.get_parameter('num_elite').get_parameter_value().double_value
         self.timestep = self.get_parameter('timestep').get_parameter_value().double_value
         position_threshold = self.get_parameter('position_threshold').get_parameter_value().double_value
@@ -98,36 +92,19 @@ class Planner(Node):
         self.target_idx = 0
 
         cost_weights = {
-            'height': 100.0,
-			'orientation': 100.0,
-            'velocity': 100.0,
-            'control': 10.0
+            'theta': 10000.0,
+            'control': 0.001
         }
-
 
         self.torque = np.zeros(self.num_dof)
 
         
         
         # Initialize MuJoCo model and data
-        model_path = os.path.join(get_package_share_directory('real_demo'), 'walker_mjx', 'scene.xml')
+        model_path = os.path.join(get_package_share_directory('real_demo'), 'pendulum_mjx', 'scene.xml')
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.model.opt.timestep = self.timestep
 
-         # Get sensor ids (similar to your cem_planner example)
-        self.torso_position_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_position"
-        )
-        self.torso_velocity_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_subtreelinvel"
-        )
-        self.torso_zaxis_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_zaxis"
-        )
-        
-        print(f"Sensor IDs - Position: {self.torso_position_sensor}, "
-              f"Velocity: {self.torso_velocity_sensor}, "
-              f"Z-axis: {self.torso_zaxis_sensor}")
   
         joint_names_pos = list()
         joint_names_vel = list()
@@ -149,8 +126,7 @@ class Planner(Node):
         # robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
         #                         'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
         
-        robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
-                         'left_hip', 'left_knee', 'left_ankle'])
+        robot_joints = np.array(['pendulum_joint'])
                          
         self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
         self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
@@ -218,33 +194,12 @@ class Planner(Node):
         self.timer = self.create_timer(self.timestep, self.control_loop)
 
 
-    def render_trace(self, viewer_, torso_trace_positions):
+    def render_trace(self, viewer_, tip_trace_positions):
         """Render the end-effector trajectory trace in the viewer."""
         # Clear any existing overlay geoms
         viewer_.user_scn.ngeom = 0
 
-        # for pos in torso_trace_positions:   # each pos is already [x,y,z]
-        #     # Create a new geom in the user scene
-        #     geom_id = viewer_.user_scn.ngeom
-        #     viewer_.user_scn.ngeom += 1
-
-        #     # Ensure correct numpy types for MuJoCo
-        #     size = np.array([0.02, 0.02, 0.02], dtype=np.float64)
-        #     pos = np.array(pos, dtype=np.float64).reshape(3)
-        #     mat = np.eye(3, dtype=np.float64).flatten()
-        #     rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)
-
-        #     # Initialize the geom properties
-        #     mujoco.mjv_initGeom(
-        #         viewer_.user_scn.geoms[geom_id],
-        #         mujoco.mjtGeom.mjGEOM_SPHERE,
-        #         size,
-        #         pos,
-        #         mat,
-        #         rgba
-        #     )
-
-        for i, pos in enumerate(torso_trace_positions):
+        for i, pos in enumerate(tip_trace_positions):
             geom_id = viewer_.user_scn.ngeom
             viewer_.user_scn.ngeom += 1
 
@@ -253,7 +208,7 @@ class Planner(Node):
             mat = np.eye(3, dtype=np.float64).flatten()
 
             # Interpolation factor [0..1]
-            t = i / (len(torso_trace_positions) - 1 + 1e-9)
+            t = i / (len(tip_trace_positions) - 1 + 1e-9)
 
             # Fade from solid red → transparent red
             start_color = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)   #  red
@@ -284,11 +239,11 @@ class Planner(Node):
         
         
         # Compute control
-        self.torque, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(self.data, 
+        self.torque, cost, cost_list, thetadot_horizon, theta_horizon, tip_trace_planned = self.planner.compute_control(self.data, 
                                                                                                                             current_pos, 
                                                                                                                             current_vel,
                                                                                                                             current_torque)
-        cost_height, cost_orientation, cost_velocity, cost_control = cost_list
+        cost_theta, cost_control = cost_list
         
         print("self.torque", self.torque)
         
@@ -308,12 +263,11 @@ class Planner(Node):
         # if self.data.ncon > self.model.nconmax:
         #     self.data.ncon = self.model.nconmax
         
-        # print("torso_trace_planned", torso_trace_planned)
 
         # Print sensor data
         self.print_sensor_data()
 
-        self.render_trace(self.viewer, torso_trace_planned[:,:3])
+        self.render_trace(self.viewer, tip_trace_planned[:,:3])
 
 
         # Update viewer
@@ -324,9 +278,7 @@ class Planner(Node):
               f'\n| Total time: {"%.0f"%(time.time() - self.traj_time_start)}s '
               f'\n| Step Time: {"%.0f"%((time.time() - start_time)*1000)}ms '
               f'\n| Cost: {np.round(cost, 2)} '
-              f'\n| Cost_Height: {np.round(cost_height, 2)} ',
-              f'\n| Cost_Orientation: {np.round(cost_orientation, 2)} ', 
-              f'\n| Cost_Velocity: {np.round(cost_velocity, 2)} ', 
+              f'\n| Cost_Theta: {np.round(cost_theta, 2)} ', 
               f'\n| Cost_Control: {np.round(cost_control, 2)} ', flush=True)
         
         print("=" * 40)
@@ -382,16 +334,6 @@ class Planner(Node):
             else:
                 return sensor_data[sensor_adr:sensor_adr + sensor_dim]
         
-        # Get sensor values
-        torso_pos = get_sensor_value(self.torso_position_sensor)
-        torso_vel = get_sensor_value(self.torso_velocity_sensor) 
-        torso_zaxis = get_sensor_value(self.torso_zaxis_sensor)
-        
-        print(f"\n=== MUJOCO SENSORS ===")
-        print(f"Torso Position: {torso_pos}")
-        print(f"Torso Velocity: {torso_vel}")
-        print(f"Torso Z-axis: {torso_zaxis}")
-        print("=" * 20)
 
 def main(args=None):
     rclpy.init(args=args)

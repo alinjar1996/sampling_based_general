@@ -22,7 +22,7 @@ class run_cem_planner:
                  ik_pos_thresh=0.08, ik_rot_thresh=0.1, 
                  collision_free_ik_dt=2.0, inference=False, rnn=None,
                  max_joint_inttorque=0.0, max_joint_torque=1.0, 
-                 max_joint_dtorque=1.5, max_joint_ddtorque=2.0,
+                 max_joint_dtorque=4.0, max_joint_ddtorque=12.0,
                  device='cuda', cost_weights=None):
         
         # Initialize parameters
@@ -63,7 +63,7 @@ class run_cem_planner:
         
         # Initialize CEM variables
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
-        self.xi_cov_single = 5*jnp.identity(self.cem.nvar_single)
+        self.xi_cov_single = 10*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
         self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.xi_cov_single)
         self.lamda_init = jnp.zeros((num_batch, self.cem.nvar))

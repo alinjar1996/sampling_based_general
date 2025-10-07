@@ -62,7 +62,7 @@ def generate_launch_description():
         timestep_arg,
         Node(
             package='real_demo',
-            executable='biped_demo',
+            executable='pendulum_demo',
             name='planner',
             output='screen',
             arguments=['--ros-args', '--log-level', 'info'],

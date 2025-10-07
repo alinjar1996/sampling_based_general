@@ -11,7 +11,7 @@
       <body name="pendulum_link" pos="0 0 0">
         <inertial pos="0 0 -0.5" mass="1" diaginertia="0.087959 0.087959 0.00019896"/>
         <joint name="pendulum_joint" pos="0 0 0" axis="0 1 0" />
-        <geom name="pendulum_link_visual" size="0.02 0.5" pos="0 0 -0.5" type="capsule" />
+        <geom name="pendulum_link_visual" size="0.02 0.5" pos="0 0 -0.5" type="capsule" rgba="1 1 1 0.3" />
         <site name="tip" pos="0 0 -1"/>
       </body>
     </body>
