@@ -98,14 +98,14 @@ class Planner(Node):
         self.target_idx = 0
 
         cost_weights = {
-            'height': 1.0,
-			'orientation': 1.0,
+            'height': 100.0,
+			'orientation': 100.0,
             'velocity': 100.0,
-            'control': 0.1
+            'control': 10.0
         }
 
 
-        self.thetadot = np.zeros(self.num_dof)
+        self.torque = np.zeros(self.num_dof)
 
         
         
@@ -131,15 +131,19 @@ class Planner(Node):
   
         joint_names_pos = list()
         joint_names_vel = list()
+        joint_names_ctrl = list()
         for i in range(self.model.njnt):
             joint_type = self.model.jnt_type[i]
             n_pos = 7 if joint_type == mujoco.mjtJoint.mjJNT_FREE else 4 if joint_type == mujoco.mjtJoint.mjJNT_BALL else 1
             n_vel = 6 if joint_type == mujoco.mjtJoint.mjJNT_FREE else 3 if joint_type == mujoco.mjtJoint.mjJNT_BALL else 1
+            n_ctrl = 6 if joint_type == mujoco.mjtJoint.mjJNT_FREE else 3 if joint_type == mujoco.mjtJoint.mjJNT_BALL else 1
             
             for _ in range(n_pos):
                 joint_names_pos.append(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i))
             for _ in range(n_vel):
                 joint_names_vel.append(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i))
+            for _ in range(n_ctrl):
+                joint_names_ctrl.append(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i))
         
         
         # robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
@@ -150,6 +154,13 @@ class Planner(Node):
                          
         self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
         self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
+        self.joint_mask_ctrl = np.isin(joint_names_ctrl, robot_joints)
+        self.joint_ctrl_indices = jnp.where(self.joint_mask_ctrl)[0]
+        self.actuator_joint_ids = self.model.actuator_trnid[:, 0]
+        self.actuator_ctrl_indices = [
+			i for i, j in enumerate(self.actuator_joint_ids)
+			if self.joint_mask_ctrl[j]
+		]
 
         # print("self.joint_mask_vel", self.joint_mask_vel)
 
@@ -268,18 +279,26 @@ class Planner(Node):
         # Get current state
         
         current_pos = self.data.qpos[self.joint_mask_pos]
-        current_vel = self.thetadot
+        current_vel = self.data.qvel[self.joint_mask_vel]
+        current_torque = self.torque
         
         
         # Compute control
-        self.thetadot, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(self.data, current_pos, current_vel)
+        self.torque, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(self.data, 
+                                                                                                                            current_pos, 
+                                                                                                                            current_vel,
+                                                                                                                            current_torque)
         cost_height, cost_orientation, cost_velocity, cost_control = cost_list
         
-        print("self.thetadot", self.thetadot)
+        print("self.torque", self.torque)
+        
+        # self.data.ctrl[self.joint_ctrl_indices] = self.torque
 
-       
-        self.data.qvel[:] = np.zeros(len(self.joint_mask_vel))
-        self.data.qvel[self.joint_mask_vel] = self.thetadot
+        # self.data.ctrl[:] = np.zeros(len(self.joint_mask_vel))
+        # self.data.ctrl[self.joint_mask_vel] = self.torque
+        self.data.ctrl[self.actuator_ctrl_indices] = self.torque
+        
+
         # print("self.data.qvel", self.data.qvel)
 
         mujoco.mj_step(self.model, self.data)

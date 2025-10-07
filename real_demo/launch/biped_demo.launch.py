@@ -16,13 +16,8 @@ def generate_launch_description():
     num_steps_arg = DeclareLaunchArgument('num_steps', default_value='15')
     maxiter_cem_arg = DeclareLaunchArgument('maxiter_cem', default_value='1')
     maxiter_projection_arg = DeclareLaunchArgument('maxiter_projection', default_value='5')
-    w_pos_arg = DeclareLaunchArgument('w_pos', default_value='3.0')
-    w_rot_arg = DeclareLaunchArgument('w_rot', default_value='0.5')
-    w_col_arg = DeclareLaunchArgument('w_col', default_value='500.0')
     num_elite_arg = DeclareLaunchArgument('num_elite', default_value='0.05')
     timestep_arg = DeclareLaunchArgument('timestep', default_value='0.1')
-    position_threshold_arg = DeclareLaunchArgument('position_threshold', default_value='0.06')
-    rotation_threshold_arg = DeclareLaunchArgument('rotation_threshold', default_value='0.1')
 
     # Launch configurations to fetch launch args
     use_config_file = LaunchConfiguration('use_config_file')
@@ -33,13 +28,8 @@ def generate_launch_description():
     num_steps = LaunchConfiguration('num_steps')
     maxiter_cem = LaunchConfiguration('maxiter_cem')
     maxiter_projection = LaunchConfiguration('maxiter_projection')
-    w_pos = LaunchConfiguration('w_pos')
-    w_rot = LaunchConfiguration('w_rot')
-    w_col = LaunchConfiguration('w_col')
     num_elite = LaunchConfiguration('num_elite')
     timestep = LaunchConfiguration('timestep')
-    position_threshold = LaunchConfiguration('position_threshold')
-    rotation_threshold = LaunchConfiguration('rotation_threshold')
 
     # params = os.path.join(
     #         get_package_share_directory('real_demo'),
@@ -55,13 +45,8 @@ def generate_launch_description():
         'num_steps': num_steps,
         'maxiter_cem': maxiter_cem,
         'maxiter_projection': maxiter_projection,
-        'w_pos': w_pos,
-        'w_rot': w_rot,
-        'w_col': w_col,
         'num_elite': num_elite,
         'timestep': timestep,
-        'position_threshold': position_threshold,
-        'rotation_threshold': rotation_threshold,
     }
 
     return LaunchDescription([
@@ -73,16 +58,11 @@ def generate_launch_description():
         num_steps_arg,
         maxiter_cem_arg,
         maxiter_projection_arg,
-        w_pos_arg,
-        w_rot_arg,
-        w_col_arg,
         num_elite_arg,
         timestep_arg,
-        position_threshold_arg,
-        rotation_threshold_arg,
         Node(
             package='real_demo',
-            executable='dual_arm_demo',
+            executable='biped_demo',
             name='planner',
             output='screen',
             arguments=['--ros-args', '--log-level', 'info'],

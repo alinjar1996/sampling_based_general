@@ -21,8 +21,8 @@ class run_cem_planner:
                  position_threshold=0.06, rotation_threshold=0.1,
                  ik_pos_thresh=0.08, ik_rot_thresh=0.1, 
                  collision_free_ik_dt=2.0, inference=False, rnn=None,
-                 max_joint_pos=180.0*np.pi/180.0, max_joint_vel=5.0, 
-                 max_joint_acc=10.0, max_joint_jerk=15.0,
+                 max_joint_inttorque=0.0, max_joint_torque=1.0, 
+                 max_joint_dtorque=1.5, max_joint_ddtorque=2.0,
                  device='cuda', cost_weights=None):
         
         # Initialize parameters
@@ -55,16 +55,15 @@ class run_cem_planner:
             num_elite=num_elite,
             timestep=timestep,
             maxiter_projection=maxiter_projection,
-            max_joint_pos=max_joint_pos,
-            max_joint_vel=max_joint_vel,
-            max_joint_acc=max_joint_acc,
-            max_joint_jerk=max_joint_jerk,
-
+            max_joint_inttorque=max_joint_inttorque,
+            max_joint_torque=max_joint_torque,
+            max_joint_dtorque=max_joint_dtorque,
+            max_joint_ddtorque=max_joint_ddtorque
         )
         
         # Initialize CEM variables
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
-        self.xi_cov_single = 500*jnp.identity(self.cem.nvar_single)
+        self.xi_cov_single = 5*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
         self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.xi_cov_single)
         self.lamda_init = jnp.zeros((num_batch, self.cem.nvar))
@@ -98,7 +97,7 @@ class run_cem_planner:
         return C
 
         
-    def compute_control(self, sim_data, current_pos, current_vel):
+    def compute_control(self, sim_data, current_pos, current_vel, current_torque):
         """Compute optimal control using CEM/MPC for dual-arm system"""
         
         # Handle covariance matrix numerical stability
@@ -123,7 +122,7 @@ class run_cem_planner:
         # current_mjx_data = sim_data
 
         # CEM computation
-        cost, best_cost_list, thetadot_horizon, theta_horizon, \
+        cost, best_cost_list, torque_horizon, theta_horizon, \
         self.xi_mean, self.xi_cov, thd_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace  = self.cem.compute_cem(
             current_mjx_data,
@@ -132,6 +131,7 @@ class run_cem_planner:
             current_pos,
             current_vel,
             np.zeros(self.num_dof),  # Zero initial acceleration
+            current_torque,
             self.lamda_init,
             self.s_init,
             self.xi_samples,
@@ -140,8 +140,9 @@ class run_cem_planner:
 
 
         # Get mean velocity command (average middle 90% of trajectory)
-        thetadot_cem = np.mean(thetadot_horizon[1:int(0.8*self.num_steps)], axis=0)
+        torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
+        # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
 
-        thetadot = thetadot_cem
+        torque = torque_cem
         
-        return thetadot, cost, best_cost_list, thetadot_horizon, theta_horizon, torso_trace_planned
+        return torque, cost, best_cost_list, torque_horizon, theta_horizon, torso_trace_planned

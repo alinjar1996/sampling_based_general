@@ -38,7 +38,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'dual_arm_demo = real_demo.dual_arm_demo:main',
+            'biped_demo = real_demo.biped_demo:main',
             'visualizer = real_demo.visualizer:main'
         ],
     },
