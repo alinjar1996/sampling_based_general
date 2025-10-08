@@ -37,8 +37,7 @@ class Planner(Node):
         self.declare_parameter('maxiter_projection', 5)
         self.declare_parameter('num_elite', 0.05)
         self.declare_parameter('timestep', 0.1)
-        self.declare_parameter('position_threshold', 0.06)
-        self.declare_parameter('rotation_threshold', 0.1)
+
 
         # Demo params
         self.use_hardware = self.get_parameter('use_hardware').get_parameter_value().bool_value
@@ -55,45 +54,56 @@ class Planner(Node):
         maxiter_projection = self.get_parameter('maxiter_projection').get_parameter_value().integer_value
         num_elite = self.get_parameter('num_elite').get_parameter_value().double_value
         self.timestep = self.get_parameter('timestep').get_parameter_value().double_value
-        position_threshold = self.get_parameter('position_threshold').get_parameter_value().double_value
-        rotation_threshold = self.get_parameter('rotation_threshold').get_parameter_value().double_value
-        # self.num_targets = 21
+
 
         
 
-        # if self.record_data_:
-        #     self.pathes = {
-        #         "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'setup_{self.idx}.npz'),
-        #         "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_{self.idx}.npz'),
-        #         # "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_walker{self.idx}.npz'),
-        #     }
-        #     self.data_buffers = {
-        #         'batch_size': [num_batch],
-        #         'horizon': [num_steps],
+        if self.record_data_:
 
-        #         # 'target_0': [0]*self.num_targets,
-        #         # 'total_time_s': [0]*self.num_targets,
-        #         # 'success': [0]*self.num_targets,
-        #         # 'reason': [0]*self.num_targets,
+            # self.pathes = {
+            #     "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'setup_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_{maxiter_projection}_{self.timestep}_{num_elite}_{self.idx}.npz'),
+            #     "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_{maxiter_projection}_{self.timestep}_{num_elite}_{self.idx}.npz'),
+            #     # "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_walker{self.idx}.npz'),
+            # }
 
-        #         # 'step_time_ms': [[] for _ in range(self.num_targets)],
-        #         # 'theta': [[] for _ in range(self.num_targets)],
-        #         # 'thetadot': [[] for _ in range(self.num_targets)],
+            self.pathes = {
+                "setup": os.path.join(
+                    PACKAGE_DIR, "data", "planner", "setup",
+                    f"setup_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_"
+                    f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
+                ),
+                "trajectory": os.path.join(
+                    PACKAGE_DIR, "data", "planner", "trajectory",
+                    f"traj_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_"
+                    f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
+                )
+            }
+            
 
-        #         # 'cost_r': [[] for _ in range(self.num_targets)],
-        #         # 'cost_eef_to_obj': [[] for _ in range(self.num_targets)],
-        #         # 'cost_obj_to_targ': [[] for _ in range(self.num_targets)],
-        #         # 'cost_dist': [[] for _ in range(self.num_targets)],
-        #         # 'cost_zy': [[] for _ in range(self.num_targets)],
-        #     }
+            self.data_buffers = {
+                'batch_size': [num_batch],
+                'horizon': [num_steps],
+                'theta': [],           # Joint positions over time
+                'torque': [],          # Torque commands over time  
+                'cost_cem': [],        # CEM cost over time
+                'cost_theta_cem': [],      # Theta cost component
+                'cost_control_cem': [],    # Control cost component
+                'total_time': [],       # Timestamps
+                'theta_horizon': [],   # Planned theta horizon 
+                'torque_horizon': [], # Planned torque horizon
+                'torque_samples': [], # torque sample
+                'torque_filtered': [], # torque filtered
+                'tip_trace_planned': [], # best tip_trace
+                'tip_trace_all': [], # tip_trace_all_samples
+            }
+            
 
 
 
-        self.target_idx = 0
 
         cost_weights = {
             'theta': 10000.0,
-            'control': 0.001
+            'control': 0.1
         }
 
         self.torque = np.zeros(self.num_dof)
@@ -173,8 +183,6 @@ class Planner(Node):
             maxiter_projection=maxiter_projection,
             num_elite=num_elite,
             timestep=self.timestep,
-            position_threshold=position_threshold,
-            rotation_threshold=rotation_threshold,
             cost_weights=cost_weights
         )
         
@@ -239,13 +247,41 @@ class Planner(Node):
         
         
         # Compute control
-        self.torque, cost, cost_list, thetadot_horizon, theta_horizon, tip_trace_planned = self.planner.compute_control(self.data, 
-                                                                                                                            current_pos, 
-                                                                                                                            current_vel,
-                                                                                                                            current_torque)
-        cost_theta, cost_control = cost_list
+        (self.torque, 
+          cost_cem, 
+          cost_list_cem, 
+          torque_horizon, 
+          theta_horizon, 
+          tip_trace_planned,
+          tip_trace_all,
+          torque_samples,
+          torque_filtered) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
+        
+        print("cost_list_cem", cost_list_cem) 
+        print("cost_cem", cost_cem) 
+        # cost_theta_cem, cost_control_cem = cost_list_cem
+        cost_theta_cem, cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1]
+        cost_theta, cost_control = cost_list_cem[-1]
+
+        # STORE THE DATA
+        if self.record_data_:
+            current_time = time.time() - self.traj_time_start
+            
+            self.data_buffers['theta'].append(current_pos.copy())
+            self.data_buffers['torque'].append(self.torque.copy())
+            self.data_buffers['cost_cem'].append(cost_cem.copy())
+            self.data_buffers['cost_theta_cem'].append(cost_theta_cem)
+            self.data_buffers['cost_control_cem'].append(cost_control_cem)
+            self.data_buffers['total_time'].append(current_time)
+            self.data_buffers['theta_horizon'].append(theta_horizon.copy())
+            self.data_buffers['torque_horizon'].append(torque_horizon.copy())
+            self.data_buffers['torque_samples'].append(torque_samples.copy())
+            self.data_buffers['torque_filtered'].append(torque_filtered.copy())
+            self.data_buffers['tip_trace_planned'].append(tip_trace_planned.copy())
+            self.data_buffers['tip_trace_all'].append(tip_trace_all.copy())
         
         print("self.torque", self.torque)
+        print("cost_cem", cost_cem)
         
         # self.data.ctrl[self.joint_ctrl_indices] = self.torque
 
@@ -274,10 +310,9 @@ class Planner(Node):
         self.viewer.sync()
         
         # Print debug info
-        print(f'\n| Target idx: {self.target_idx} '
-              f'\n| Total time: {"%.0f"%(time.time() - self.traj_time_start)}s '
+        print(f'\n| Total time: {"%.0f"%(time.time() - self.traj_time_start)}s '
               f'\n| Step Time: {"%.0f"%((time.time() - start_time)*1000)}ms '
-              f'\n| Cost: {np.round(cost, 2)} '
+              f'\n| Cost: {np.round(cost_cem[-1], 2)} '
               f'\n| Cost_Theta: {np.round(cost_theta, 2)} ', 
               f'\n| Cost_Control: {np.round(cost_control, 2)} ', flush=True)
         
@@ -285,7 +320,39 @@ class Planner(Node):
         time_until_next_step = self.model.opt.timestep - (time.time() - start_time)
         if time_until_next_step > 0:
             time.sleep(time_until_next_step) 
+    
 
+    def save_data(self):
+        """Save all recorded data to file"""
+        if not self.record_data_ or not self.data_buffers['theta']:
+            print("No data to save or recording disabled")
+            return
+            
+        # Convert lists to numpy arrays for efficient storage
+        save_dict = {
+            'batch_size': np.array(self.data_buffers['batch_size']),
+            'horizon': np.array(self.data_buffers['horizon']),
+            'theta': np.array(self.data_buffers['theta']),
+            'torque': np.array(self.data_buffers['torque']),
+            'cost_cem': np.array(self.data_buffers['cost_cem']),
+            'cost_theta_cem': np.array(self.data_buffers['cost_theta_cem']),
+            'cost_control_cem': np.array(self.data_buffers['cost_control_cem']),
+            'total_time': np.array(self.data_buffers['total_time']),
+            'theta_horizon': np.array(self.data_buffers['theta_horizon']),
+            'torque_horizon': np.array(self.data_buffers['torque_horizon']),
+            'torque_samples': np.array(self.data_buffers['torque_samples']),
+            'torque_filtered': np.array(self.data_buffers['torque_filtered']),
+            'tip_trace_planned': np.array(self.data_buffers['tip_trace_planned']),
+            'tip_trace_all': np.array(self.data_buffers['tip_trace_all']),
+        }
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.pathes["trajectory"]), exist_ok=True)
+        
+        # Save data
+        np.savez(self.pathes["trajectory"], **save_dict)
+        print(f"Data saved to {self.pathes['trajectory']}")
+        print(f"Recorded {len(self.data_buffers['theta'])} time steps")
     
     def close_connection(self):
         if self.use_hardware:
@@ -347,7 +414,7 @@ def main(args=None):
     finally:
         # if rclpy.ok():
         if planner.record_data_:
-            planner.record_data()
+            planner.save_data()
         planner.close_connection()
         planner.destroy_node()
         rclpy.shutdown()

@@ -95,6 +95,9 @@ class cem_planner():
 		self.dtorque_max = max_joint_dtorque
 		self.ddtorque_max = max_joint_ddtorque
 		# self.inttorque_max = max_joint_inttorque		
+
+				
+		
 		    
     	# Calculating number of Inequality constraints
 		self.num_torque = self.num
@@ -109,6 +112,27 @@ class cem_planner():
 		self.num_total_constraints = (self.num_torque_constraints + self.num_dtorque_constraints + 
 								      self.num_ddtorque_constraints)
 		self.num_total_constraints_per_dof = self.num_total_constraints / self.num_dof
+
+
+
+		self.b_torque = jnp.hstack((
+			self.torque_max * jnp.ones((self.num_batch, self.num_torque_constraints // 2)),
+			self.torque_max * jnp.ones((self.num_batch, self.num_torque_constraints // 2))
+		))
+
+		self.b_dtorque = jnp.hstack((
+			self.dtorque_max * jnp.ones((self.num_batch, self.num_dtorque_constraints // 2)),
+			self.dtorque_max * jnp.ones((self.num_batch, self.num_dtorque_constraints // 2))
+		))
+
+		self.b_ddtorque = jnp.hstack((
+			self.ddtorque_max * jnp.ones((self.num_batch, self.num_ddtorque_constraints // 2)),
+			self.ddtorque_max * jnp.ones((self.num_batch, self.num_ddtorque_constraints // 2))
+		))
+        
+        
+
+		self.b_control = jnp.hstack((self.b_torque, self.b_dtorque, self.b_ddtorque))
 
 		self.ellite_num = int(self.num_elite*self.num_batch)
 
@@ -285,67 +309,10 @@ class cem_planner():
 										 init_pos):
 		
 	
-		
-		b_torque = jnp.hstack((
-			self.torque_max * jnp.ones((self.num_batch, self.num_torque_constraints // 2)),
-			self.torque_max * jnp.ones((self.num_batch, self.num_torque_constraints // 2))
-		))
 
-		b_dtorque = jnp.hstack((
-			self.dtorque_max * jnp.ones((self.num_batch, self.num_dtorque_constraints // 2)),
-			self.dtorque_max * jnp.ones((self.num_batch, self.num_dtorque_constraints // 2))
-		))
-
-		b_ddtorque = jnp.hstack((
-			self.ddtorque_max * jnp.ones((self.num_batch, self.num_ddtorque_constraints // 2)),
-			self.ddtorque_max * jnp.ones((self.num_batch, self.num_ddtorque_constraints // 2))
-		))
-        
-
-
-		init_pos_batch = jnp.tile(init_pos, (self.num_batch, 1))  # (num_batch, 1)
-        
-		# Calculate bounds for each joint and each batch
-    	# # Upper bounds: p_max - init_pos, Lower bounds: p_max + init_pos (assuming symmetric limits)
-		# b_pos_upper = (self.inttorque_max - init_pos_batch)  # shape (num_batch, 1)
-		# b_pos_lower = (self.inttorque_max + init_pos_batch)  # shape (num_batch, 1)
-		# #b_pos_lower = (-self.p_min + init_pos_batch)  # shape (num_batch, 1)
-        
-		
-		# # Corrected version
-		# b_pos_upper_flat = jnp.repeat(b_pos_upper, repeats=self.num_inttorque_constraints // (2 * self.num_dof), axis=1) 
-		# b_pos_lower_flat = jnp.repeat(b_pos_lower, repeats=self.num_inttorque_constraints // (2 * self.num_dof), axis=1)  
-		# b_pos = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])  
-
-
-		p_min = jnp.array([-20.0, -150.0, -45.0, -20.0, -150.0, -45.0])*jnp.pi/180
-		p_max = jnp.array([100.0, 0.0, 45.0, 100.0, 0.0, 45.0])*jnp.pi/180
-
-
-		# -----------------------
-		# Compute bounds per joint and batch
-		# -----------------------
-		# Expand limits across batch dimension
-		p_max_batch = jnp.tile(jnp.expand_dims(p_max, axis=0), (self.num_batch, 1))
-		p_min_batch = jnp.tile(jnp.expand_dims(p_min, axis=0), (self.num_batch, 1))
-
-		# Upper and lower bounds per joint
-		b_pos_upper = p_max_batch - init_pos_batch  # shape (num_batch, num_dof)
-		b_pos_lower = -p_min_batch + init_pos_batch # shape (num_batch, num_dof)
-
-		# Repeat across time / constraints
-		repeat_factor = self.num_inttorque_constraints // (2 * self.num_dof)
-		b_pos_upper_flat = jnp.repeat(b_pos_upper, repeats=repeat_factor, axis=1)
-		b_pos_lower_flat = jnp.repeat(b_pos_lower, repeats=repeat_factor, axis=1)
-
-		# Final bounds: concatenate upper and lower bounds
-		b_pos = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])
-        
-		# b_control = jnp.hstack((b_torque, b_dtorque, b_ddtorque, b_pos))
-		b_control = jnp.hstack((b_torque, b_dtorque, b_ddtorque))
 
 		# Augmented bounds with slack variables
-		b_control_aug = b_control - s_init
+		b_control_aug = self.b_control - s_init
 
 
 		# Cost matrix
@@ -377,11 +344,11 @@ class cem_planner():
 		# Update slack variables
 		s = jnp.maximum(
 			jnp.zeros((self.num_batch, self.num_total_constraints)),
-			-jnp.dot(self.A_control, xi_projected.T).T + b_control
+			-jnp.dot(self.A_control, xi_projected.T).T + self.b_control
 		)
 
 		# Compute residual
-		res_vec = jnp.dot(self.A_control, xi_projected.T).T - b_control + s
+		res_vec = jnp.dot(self.A_control, xi_projected.T).T - self.b_control + s
 		res_norm = jnp.linalg.norm(res_vec, axis=1)
 		
 		lamda = lamda_init - self.rho_ineq * jnp.dot(self.A_control.T, res_vec.T).T
@@ -597,7 +564,7 @@ class cem_planner():
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_xi_samples(self, key, xi_mean, xi_cov ):
 		key, subkey = jax.random.split(key)
-		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.003*jnp.identity(self.nvar), (self.num_batch, ))
+		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.09*jnp.identity(self.nvar), (self.num_batch, ))
 		return xi_samples, key
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -658,8 +625,11 @@ class cem_planner():
 
 		# s_init_reshaped = s_init.reshape(self.num_batch, self.num_dof, self.num_total_constraints_per_dof )
 		# s_init_batched_over_dof = jnp.transpose(s_init_reshaped, (1, 0, 2)) # shape: (DoF, B, num_total_constraints_per_dof)
-
-
+        
+		s_init = jnp.maximum(
+			jnp.zeros((self.num_batch, self.num_total_constraints)),
+			-jnp.dot(self.A_control, xi_samples.T).T + self.b_control
+		)
 		
         # Pass all arguments as positional arguments; not keyword arguments
 		xi_filtered, primal_residuals, fixed_point_residuals = self.compute_projection(
@@ -668,6 +638,10 @@ class cem_planner():
 																 lamda_init, 
 																 s_init, 
 																 init_pos)
+		
+
+		
+
 		
 		# xi_filtered = xi_filtered.transpose(1, 0, 2).reshape(self.num_batch, -1) # shape: (B, num*num_dof)
 		
@@ -694,7 +668,7 @@ class cem_planner():
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
 		return carry, (cost_batch, cost_list_batch, torque, theta, 
-				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, tip_pos)
+				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, tip_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cem(
@@ -721,7 +695,7 @@ class cem_planner():
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
-		cost_batch, cost_list_batch, torque, theta, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, tip_pos = out
+		cost_batch, cost_list_batch, torque, theta, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_filtered ,tip_pos = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
@@ -732,6 +706,10 @@ class cem_planner():
 
 		best_cost = cost_batch[-1][idx_min]
 
+		best_cost_list_cem = cost_list_batch[:, idx_min]
+
+		best_cost_cem = cost_batch[:, idx_min]
+		
 		xi_mean = carry[0]
 		xi_cov = carry[1]
 
@@ -740,12 +718,13 @@ class cem_planner():
 
 	    
 		return (
-			best_cost,
-			best_cost_list,
+			best_cost_cem,
+			best_cost_list_cem,
 			best_torques,
 			best_traj,
 			xi_mean,
 			xi_cov,
+			xi_filtered,
 			torque,
 			theta,
 			avg_res_primal,
