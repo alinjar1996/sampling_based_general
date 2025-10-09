@@ -95,6 +95,8 @@ class Planner(Node):
                 'torque_filtered': [], # torque filtered
                 'tip_trace_planned': [], # best tip_trace
                 'tip_trace_all': [], # tip_trace_all_samples
+                'primal_res': [], # Primal residual
+                'fixed_res': [], # Fixed point residual
             }
             
 
@@ -102,8 +104,8 @@ class Planner(Node):
 
 
         cost_weights = {
-            'theta': 10000.0,
-            'control': 0.1
+            'theta': 1.0,
+            'control': 0.0
         }
 
         self.torque = np.zeros(self.num_dof)
@@ -255,10 +257,12 @@ class Planner(Node):
           tip_trace_planned,
           tip_trace_all,
           torque_samples,
-          torque_filtered) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
+          torque_filtered,
+          primal_res,
+          fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
         
-        print("cost_list_cem", cost_list_cem) 
-        print("cost_cem", cost_cem) 
+        # print("cost_list_cem", cost_list_cem) 
+        # print("cost_cem", cost_cem) 
         # cost_theta_cem, cost_control_cem = cost_list_cem
         cost_theta_cem, cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1]
         cost_theta, cost_control = cost_list_cem[-1]
@@ -279,6 +283,8 @@ class Planner(Node):
             self.data_buffers['torque_filtered'].append(torque_filtered.copy())
             self.data_buffers['tip_trace_planned'].append(tip_trace_planned.copy())
             self.data_buffers['tip_trace_all'].append(tip_trace_all.copy())
+            self.data_buffers['primal_res'].append(primal_res.copy())
+            self.data_buffers['fixed_res'].append(fixed_res.copy())
         
         print("self.torque", self.torque)
         print("cost_cem", cost_cem)
@@ -344,6 +350,8 @@ class Planner(Node):
             'torque_filtered': np.array(self.data_buffers['torque_filtered']),
             'tip_trace_planned': np.array(self.data_buffers['tip_trace_planned']),
             'tip_trace_all': np.array(self.data_buffers['tip_trace_all']),
+            'primal_res': np.array(self.data_buffers['primal_res']),
+            'fixed_res': np.array(self.data_buffers['fixed_res']),
         }
         
         # Create directory if it doesn't exist

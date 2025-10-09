@@ -138,10 +138,10 @@ class cem_planner():
 
 
 
-		self.alpha_mean = 0.6
-		self.alpha_cov = 0.6
+		self.alpha_mean = 0.1
+		self.alpha_cov = 0.1
 
-		self.lamda = 10
+		self.lamda = 0.1
 		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
 
@@ -538,7 +538,7 @@ class cem_planner():
 			# jax.debug.print("theta {}", theta)
 			theta_err = jnp.array([jnp.cos(theta_) - 1, jnp.sin(theta_)])
 			# jax.debug.print("theta_err {}", theta_err)
-			return jnp.sum(jnp.square(theta_err))
+			return jnp.sum(jnp.square(theta_))
 
 		theta_cost = _distance_to_upright(theta)
 
@@ -602,7 +602,7 @@ class cem_planner():
 		mean_control = (1-self.alpha_mean)*mean_control_prev + self.alpha_mean*(jnp.sum( (xi_ellite * w[:,jnp.newaxis]) , axis= 0)/ sum_w)
 		diffs = (xi_ellite - mean_control)
 		prod_result = self.vec_product(diffs, w)
-		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.0001*jnp.identity(self.nvar)
+		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 1*jnp.identity(self.nvar)
 		cov_control = self.repair_cov(cov_control)
 		return mean_control, cov_control
 	

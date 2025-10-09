@@ -134,9 +134,18 @@ class run_cem_planner:
 
 
         # Get mean velocity command (average middle 90% of trajectory)
-        torque_cem = np.mean(torque_horizon[1:6], axis=0)
+        torque_cem = np.mean(torque_horizon[1:20], axis=0)
         # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
 
         torque = torque_cem
         
-        return torque, cost_cem, cost_list_cem, torque_horizon, theta_horizon, tip_trace_planned, tip_trace_all, self.xi_samples, torque_filtered_cem
+        return (torque, cost_cem, 
+                cost_list_cem, 
+                torque_horizon, 
+                theta_horizon, 
+                tip_trace_planned, 
+                tip_trace_all, 
+                self.xi_samples, 
+                torque_filtered_cem,
+                primal_res,
+                fixed_res)
