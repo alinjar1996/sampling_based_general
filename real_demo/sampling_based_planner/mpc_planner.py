@@ -117,7 +117,7 @@ class run_cem_planner:
 
         # CEM computation
         cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
-        self.xi_mean, self.xi_cov, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
+        xi_mean, xi_cov, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, tip_trace_planned, tip_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
@@ -132,12 +132,13 @@ class run_cem_planner:
             self.cost_weights,
         )
 
-
+        
         # Get mean velocity command (average middle 90% of trajectory)
-        torque_cem = np.mean(torque_horizon[1:20], axis=0)
+        # torque_cem = np.mean(torque_horizon[1:20], axis=0)
         # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
 
-        torque = torque_cem
+        # torque = torque_cem
+        torque = torque_horizon
         
         return (torque, cost_cem, 
                 cost_list_cem, 

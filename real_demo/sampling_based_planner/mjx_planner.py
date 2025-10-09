@@ -138,12 +138,14 @@ class cem_planner():
 
 
 
-		self.alpha_mean = 0.1
-		self.alpha_cov = 0.1
+		self.alpha_mean = 0.6
+		self.alpha_cov = 0.6
 
 		self.lamda = 0.1
 		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
+
+		self.gamma = 0.98 #Discount factor for reward
 
 		self.model = model
 		self.data = mujoco.MjData(self.model)
@@ -230,7 +232,7 @@ class cem_planner():
 
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (None, 0, None, None))
-		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
+		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, 0, None))
 		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
           
 		self.print_info()
@@ -450,6 +452,7 @@ class cem_planner():
 
 		# Get joint positions and end-effector states
 		theta = mjx_data.qpos[self.joint_mask_pos]
+		thetadot = mjx_data.qvel[self.joint_mask_vel]
 
 		tip_pos = mjx_data.site_xpos[self.tip]
 		
@@ -458,6 +461,7 @@ class cem_planner():
 
 		return mjx_data, (
 			theta, 
+			thetadot,
 			tip_pos
 		)
 	
@@ -516,14 +520,14 @@ class cem_planner():
 		# Call self.mjx_step_torque instead of self.mjx_step.
 		mjx_data_final, out = jax.lax.scan(self.mjx_step_torque, mjx_data, torque_single.T, length=self.num)
 		
-		theta, tip_pos = out
+		theta, thetadot, tip_pos = out
 
 		# sensor_data = mjx_data_final.sensordata
 		
-		return theta.T.flatten(), tip_pos
+		return theta.T.flatten(), thetadot.T.flatten(), tip_pos
 
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_cost_single(self, torque_single, theta, cost_weights):
+	def compute_cost_single(self, torque_single, theta, thetadot, cost_weights):
 	
 
 		# # --- Inline sensor extraction ---
@@ -531,24 +535,33 @@ class cem_planner():
 		# 	"""Get the height of the torso above the ground."""
 		# 	sensor_adr = self.model.sensor_adr[self.torso_position_sensor]
 		# 	return sensor_data[sensor_adr + 2]  # px, py, pz
+
+		H = jnp.arange(self.num)
+		discounts = self.gamma ** H
 		
 		def _distance_to_upright(theta) -> jax.Array:
 			"""Get a measure of distance to the upright position."""
 			theta_ = theta - jnp.pi
 			# jax.debug.print("theta {}", theta)
 			theta_err = jnp.array([jnp.cos(theta_) - 1, jnp.sin(theta_)])
-			# jax.debug.print("theta_err {}", theta_err)
-			return jnp.sum(jnp.square(theta_))
+			#jax.debug.print("theta_err {}", theta_err)
+			return jnp.sum(discounts * jnp.square(theta_err))
 
 		theta_cost = _distance_to_upright(theta)
 
+		thetadot_cost = jnp.sum(jnp.square(thetadot))
+
 		control_cost = jnp.sum(jnp.square(torque_single))
+
 		cost = (
-			cost_weights['theta'] * theta_cost + cost_weights['control'] * control_cost 
+			cost_weights['theta'] * theta_cost 
+			+ cost_weights['thetadot'] * thetadot_cost 
+			+ cost_weights['control'] * control_cost 
 		)	
 
 		cost_list = jnp.array([
 			cost_weights['theta'] * theta_cost, 
+			cost_weights['thetadot'] * theta_cost, 
 			cost_weights['control'] * control_cost
 		])
 
@@ -565,6 +578,7 @@ class cem_planner():
 	def compute_xi_samples(self, key, xi_mean, xi_cov ):
 		key, subkey = jax.random.split(key)
 		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.09*jnp.identity(self.nvar), (self.num_batch, ))
+		xi_samples = jnp.clip(xi_samples, a_min=-1.0, a_max=1.0)
 		return xi_samples, key
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -652,14 +666,14 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		torque = jnp.dot(self.A_torque, xi_filtered.T).T
+		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		# torque = jnp.dot(self.A_torque, xi_samples.T).T
+		torque = jnp.dot(self.A_torque, xi_samples.T).T
 
 		mjx_data_current = carry[-1]
 
-		theta, tip_pos = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
-		cost_batch, cost_list_batch = self.compute_cost_batch(torque, theta, cost_weights)
+		theta, thetadot, tip_pos = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
+		cost_batch, cost_list_batch = self.compute_cost_batch(torque, theta, thetadot, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
 		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)

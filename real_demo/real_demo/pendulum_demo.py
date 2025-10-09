@@ -54,6 +54,7 @@ class Planner(Node):
         maxiter_projection = self.get_parameter('maxiter_projection').get_parameter_value().integer_value
         num_elite = self.get_parameter('num_elite').get_parameter_value().double_value
         self.timestep = self.get_parameter('timestep').get_parameter_value().double_value
+        self.num_steps = num_steps
 
 
         
@@ -87,6 +88,7 @@ class Planner(Node):
                 'torque': [],          # Torque commands over time  
                 'cost_cem': [],        # CEM cost over time
                 'cost_theta_cem': [],      # Theta cost component
+                'cost_thetadot_cem': [],      # Theta Dot cost component
                 'cost_control_cem': [],    # Control cost component
                 'total_time': [],       # Timestamps
                 'theta_horizon': [],   # Planned theta horizon 
@@ -105,10 +107,12 @@ class Planner(Node):
 
         cost_weights = {
             'theta': 1.0,
-            'control': 0.0
+            'thetadot': 0.01,
+            'control': 0.001
         }
 
         self.torque = np.zeros(self.num_dof)
+        self.torque_array = np.zeros(self.num_dof*num_steps)
 
         
         
@@ -245,11 +249,13 @@ class Planner(Node):
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
+        self.torque = np.mean(self.torque_array[1:10], axis = 0)
         current_torque = self.torque
+
         
         
         # Compute control
-        (self.torque, 
+        (self.torque_array, 
           cost_cem, 
           cost_list_cem, 
           torque_horizon, 
@@ -261,11 +267,9 @@ class Planner(Node):
           primal_res,
           fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
         
-        # print("cost_list_cem", cost_list_cem) 
-        # print("cost_cem", cost_cem) 
         # cost_theta_cem, cost_control_cem = cost_list_cem
-        cost_theta_cem, cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1]
-        cost_theta, cost_control = cost_list_cem[-1]
+        cost_theta_cem, cost_thetadot_cem, cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1], cost_list_cem[:, 2]
+        cost_theta, cost_thetadot, cost_control = cost_list_cem[-1]
 
         # STORE THE DATA
         if self.record_data_:
@@ -275,6 +279,7 @@ class Planner(Node):
             self.data_buffers['torque'].append(self.torque.copy())
             self.data_buffers['cost_cem'].append(cost_cem.copy())
             self.data_buffers['cost_theta_cem'].append(cost_theta_cem)
+            self.data_buffers['cost_thetadot_cem'].append(cost_thetadot_cem)
             self.data_buffers['cost_control_cem'].append(cost_control_cem)
             self.data_buffers['total_time'].append(current_time)
             self.data_buffers['theta_horizon'].append(theta_horizon.copy())
@@ -286,8 +291,6 @@ class Planner(Node):
             self.data_buffers['primal_res'].append(primal_res.copy())
             self.data_buffers['fixed_res'].append(fixed_res.copy())
         
-        print("self.torque", self.torque)
-        print("cost_cem", cost_cem)
         
         # self.data.ctrl[self.joint_ctrl_indices] = self.torque
 
@@ -320,6 +323,7 @@ class Planner(Node):
               f'\n| Step Time: {"%.0f"%((time.time() - start_time)*1000)}ms '
               f'\n| Cost: {np.round(cost_cem[-1], 2)} '
               f'\n| Cost_Theta: {np.round(cost_theta, 2)} ', 
+              f'\n| Cost_ThetaDot: {np.round(cost_thetadot, 2)} ', 
               f'\n| Cost_Control: {np.round(cost_control, 2)} ', flush=True)
         
         print("=" * 40)
@@ -342,6 +346,7 @@ class Planner(Node):
             'torque': np.array(self.data_buffers['torque']),
             'cost_cem': np.array(self.data_buffers['cost_cem']),
             'cost_theta_cem': np.array(self.data_buffers['cost_theta_cem']),
+            'cost_thetadot_cem': np.array(self.data_buffers['cost_thetadot_cem']),
             'cost_control_cem': np.array(self.data_buffers['cost_control_cem']),
             'total_time': np.array(self.data_buffers['total_time']),
             'theta_horizon': np.array(self.data_buffers['theta_horizon']),
