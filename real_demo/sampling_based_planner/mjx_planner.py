@@ -145,7 +145,7 @@ class cem_planner():
 		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
 
-		self.gamma = 0.98 #Discount factor for reward
+		self.gamma = 0.99 #Discount factor for reward
 
 		self.model = model
 		self.data = mujoco.MjData(self.model)
@@ -549,9 +549,9 @@ class cem_planner():
 
 		theta_cost = _distance_to_upright(theta)
 
-		thetadot_cost = jnp.sum(jnp.square(thetadot))
+		thetadot_cost = jnp.sum(discounts * jnp.square(thetadot))
 
-		control_cost = jnp.sum(jnp.square(torque_single))
+		control_cost = jnp.sum(discounts * jnp.square(torque_single))
 
 		cost = (
 			cost_weights['theta'] * theta_cost 

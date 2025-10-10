@@ -252,6 +252,8 @@ class Planner(Node):
         self.torque = np.mean(self.torque_array[1:10], axis = 0)
         current_torque = self.torque
 
+        print("self.torque", self.torque)
+
         
         
         # Compute control
@@ -276,7 +278,8 @@ class Planner(Node):
             current_time = time.time() - self.traj_time_start
             
             self.data_buffers['theta'].append(current_pos.copy())
-            self.data_buffers['torque'].append(self.torque.copy())
+            # self.data_buffers['torque'].append(self.torque.copy())
+            self.data_buffers['torque'].append(np.atleast_1d(np.squeeze(self.torque.copy())))
             self.data_buffers['cost_cem'].append(cost_cem.copy())
             self.data_buffers['cost_theta_cem'].append(cost_theta_cem)
             self.data_buffers['cost_thetadot_cem'].append(cost_thetadot_cem)
@@ -296,6 +299,7 @@ class Planner(Node):
 
         # self.data.ctrl[:] = np.zeros(len(self.joint_mask_vel))
         # self.data.ctrl[self.joint_mask_vel] = self.torque
+
         self.data.ctrl[self.actuator_ctrl_indices] = self.torque
         
 
