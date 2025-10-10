@@ -249,7 +249,7 @@ class Planner(Node):
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
-        self.torque = np.mean(self.torque_array[1:10], axis = 0)
+        self.torque = np.mean(self.torque_array[1:3], axis = 0)
         current_torque = self.torque
 
         print("self.torque", self.torque)

@@ -1,4 +1,5 @@
 import os
+import sys
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -14,6 +15,17 @@ import mujoco
 import mujoco.mjx as mjx 
 import jax
 import jax.numpy as jnp
+
+# Get the folder containing this script
+current_dir = os.path.dirname(os.path.abspath(__file__))  # if in a script
+# current_dir = os.getcwd()  # if in Jupyter notebook
+
+# Add parent folder to sys.path
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+from math_utils.bernstein_coeff_ordern_arbitinterval import bernstein_coeff_ordern_new
 
 
 class cem_planner():
@@ -37,11 +49,16 @@ class cem_planner():
 		tot_time = np.linspace(0, self.t_fin, self.num)
 		self.tot_time = tot_time
 		tot_time_copy = tot_time.reshape(self.num, 1)
-
+     
 		self.P = jnp.identity(self.num) # Velocity mapping 
 		self.Pdot = jnp.diff(self.P, axis=0)/self.t # Accelaration mapping
 		self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # Jerk mapping
 		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
+		
+		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(self.num-1, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+
+		# self.Pint = jnp.zeros_like(self.P) 
+	
 		self.P_jax, self.Pdot_jax, self.Pddot_jax = jnp.asarray(self.P), jnp.asarray(self.Pdot), jnp.asarray(self.Pddot)
 		self.Pint_jax = jnp.asarray(self.Pint)
 
@@ -100,10 +117,15 @@ class cem_planner():
 		
 		    
     	# Calculating number of Inequality constraints
-		self.num_torque = self.num
-		self.num_dtorque = self.num - 1
-		self.num_ddtorque = self.num - 2
-		self.num_inttorque = self.num
+		# self.num_torque = self.num
+		# self.num_dtorque = self.num - 1
+		# self.num_ddtorque = self.num - 2
+		# self.num_inttorque = self.num
+
+		self.num_torque   = self.P.shape[0]       # number of time samples for torque / position
+		self.num_dtorque  = self.Pdot.shape[0]    # number of samples for velocity (rate of change)
+		self.num_ddtorque = self.Pddot.shape[0]   # number of samples for acceleration
+		self.num_inttorque = self.Pint.shape[0]   # number of samples for integrated torque
 
 		self.num_torque_constraints = 2 * self.num_torque * num_dof
 		self.num_dtorque_constraints = 2 * self.num_dtorque * num_dof
@@ -230,7 +252,7 @@ class cem_planner():
 		self.tip = self.model.site(name="tip").id
 
 
-		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
+		self.compute_dynamics_rollout_batch = jax.vmap(self.compute_dynamics_rollout_single,in_axes=(None, 0, None, None))  # batch over torques (axis 0)
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, 0, None))
 		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
@@ -253,7 +275,9 @@ class cem_planner():
 			# f'\n Number of geomteric IDs for colllision: {len(self.geom_ids_all)}'
 		    # f'\n{self.mask.sum()} / {self.mask.shape[0]} contacts involve robot.'
 		)
-
+    
+	def angle_normalize(self, x):
+		return ((x + jnp.pi) % (2 * jnp.pi)) - jnp.pi
     
 	def get_A_torque_control(self):
 
@@ -525,6 +549,96 @@ class cem_planner():
 		# sensor_data = mjx_data_final.sensordata
 		
 		return theta.T.flatten(), thetadot.T.flatten(), tip_pos
+	
+
+	@partial(jax.jit, static_argnums=(0,))
+	def compute_dynamics_single_step(self, mjx_data_current, torques, init_pos, init_vel):
+		"""
+		Analytical (pendulum-like) torque-based rollout — JAX version (no clipping).
+
+		Args:
+			mjx_data_current: unused placeholder (for API consistency)
+			torques: control inputs (shape [num_dof, num] or [num_dof])
+			init_pos: initial joint positions
+			init_vel: initial joint velocities
+
+		Returns:
+			theta, thetadot, tip_pos (X, 0, Z)
+		"""
+		# Interpret init_pos and init_vel as angular position and velocity
+		th = init_pos
+		thdot = init_vel
+
+		# Constants
+		g = 10.0
+		m = 1.0
+		l = 1.0
+		dt = self.t
+
+		# Handle single or multi-step torque inputs
+		u = torques
+		if u.ndim > 1:
+			u = u[:, 0]  # take first column if multiple timesteps
+		u = u.reshape(-1, 1)
+
+		# Analytical dynamics update (explicit Euler)
+		newthdot = thdot + (-3 * g / (2 * l) * jnp.sin(th + jnp.pi) + 3.0 / (m * l**2) * u) * dt
+		newth = th + newthdot * dt
+
+		# reshape to match input shapes (important for lax.scan)
+		newth = jnp.reshape(newth, th.shape)
+		newthdot = jnp.reshape(newthdot, thdot.shape)
+
+		# Compute tip position in (X, 0, Z)
+		tip_x = -l * jnp.sin(newth)
+		tip_y = jnp.zeros_like(tip_x)
+		tip_z = -l * jnp.cos(newth)
+		tip_pos = jnp.concatenate([tip_x, tip_y, tip_z], axis=-1)
+
+		base_pos = jnp.array([0.0, 0.0, 1.5])
+		tip_pos = tip_pos + base_pos
+
+		return newth, newthdot, tip_pos
+	
+	@partial(jax.jit, static_argnums=(0,))
+	def compute_dynamics_rollout_single(self, mjx_data_current, torques, init_pos, init_vel):
+		"""
+		Multi-step analytical (pendulum-like) dynamics rollout — JAX version (no clipping).
+
+		Args:
+			mjx_data_current: unused placeholder (for API consistency)
+			torques: control inputs (shape [num_dof, num])
+			init_pos: initial joint positions
+			init_vel: initial joint velocities
+
+		Returns:
+			theta_seq: [num, num_dof]
+			thetadot_seq: [num, num_dof]
+			tip_pos_seq: [num, *3] (X, 0, Z)
+		"""
+
+		def step_fn(carry, torque_t):
+			th, thdot = carry
+			newth, newthdot, tip_pos = self.compute_dynamics_single_step(
+				mjx_data_current, torque_t, th, thdot
+			)
+			new_carry = (newth, newthdot)
+			return new_carry, (newth, newthdot, tip_pos)
+
+		# Transpose torques to iterate over time dimension
+		# Expected shape: (num_dof, num) → (num, num_dof)
+		torques_T = torques.T
+
+		# Roll out dynamics for self.num steps
+		(_, _), (theta_seq, thetadot_seq, tip_pos_seq) = jax.lax.scan(
+			step_fn,
+			(init_pos, init_vel),
+			torques_T,
+			length=self.num
+		)
+
+		return theta_seq.flatten(), thetadot_seq.flatten(), tip_pos_seq
+
 
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cost_single(self, torque_single, theta, thetadot, cost_weights):
@@ -543,6 +657,7 @@ class cem_planner():
 			"""Get a measure of distance to the upright position."""
 			theta_ = theta - jnp.pi
 			# jax.debug.print("theta {}", theta)
+			# theta_err = self.angle_normalize(theta_)
 			theta_err = jnp.array([jnp.cos(theta_) - 1, jnp.sin(theta_)])
 			#jax.debug.print("theta_err {}", theta_err)
 			return jnp.sum(discounts * jnp.square(theta_err))
@@ -577,7 +692,8 @@ class cem_planner():
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_xi_samples(self, key, xi_mean, xi_cov ):
 		key, subkey = jax.random.split(key)
-		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.09*jnp.identity(self.nvar), (self.num_batch, ))
+		# xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.009*jnp.identity(self.nvar), (self.num_batch, ))
+		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov, (self.num_batch, ))
 		xi_samples = jnp.clip(xi_samples, a_min=-1.0, a_max=1.0)
 		return xi_samples, key
 	
@@ -616,7 +732,7 @@ class cem_planner():
 		mean_control = (1-self.alpha_mean)*mean_control_prev + self.alpha_mean*(jnp.sum( (xi_ellite * w[:,jnp.newaxis]) , axis= 0)/ sum_w)
 		diffs = (xi_ellite - mean_control)
 		prod_result = self.vec_product(diffs, w)
-		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 1*jnp.identity(self.nvar)
+		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.01*jnp.identity(self.nvar)
 		cov_control = self.repair_cov(cov_control)
 		return mean_control, cov_control
 	
@@ -654,13 +770,14 @@ class cem_planner():
 																 init_pos)
 		
 
+		xi_filtered = jnp.clip(xi_filtered, a_min=-1.0, a_max=1.0)
 		
 
-		
 		# xi_filtered = xi_filtered.transpose(1, 0, 2).reshape(self.num_batch, -1) # shape: (B, num*num_dof)
 		
 		# primal_residuals = jnp.linalg.norm(primal_residuals, axis = 0)
 		# fixed_point_residuals = jnp.linalg.norm(fixed_point_residuals, axis = 0)
+
 				
 		avg_res_primal = jnp.sum(primal_residuals, axis = 0)/self.maxiter_projection
     	
@@ -673,6 +790,7 @@ class cem_planner():
 		mjx_data_current = carry[-1]
 
 		theta, thetadot, tip_pos = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
+		# theta, thetadot, tip_pos = self.compute_dynamics_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
 		cost_batch, cost_list_batch = self.compute_cost_batch(torque, theta, thetadot, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
