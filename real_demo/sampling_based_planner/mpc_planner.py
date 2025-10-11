@@ -147,7 +147,7 @@ class run_cem_planner:
                 theta_horizon, 
                 tip_trace_planned, 
                 tip_trace_all, 
-                self.xi_samples, 
+                torque_all, 
                 torque_filtered_cem,
                 primal_res,
                 fixed_res)
