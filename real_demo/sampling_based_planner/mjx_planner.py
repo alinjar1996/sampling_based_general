@@ -56,7 +56,7 @@ class cem_planner():
 		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
 		
 		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(self.num-1, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
-		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(2, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
 		self.Pint = jnp.zeros_like(self.P) 
 	
