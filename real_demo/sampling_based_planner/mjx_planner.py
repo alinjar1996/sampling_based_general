@@ -56,7 +56,7 @@ class cem_planner():
 		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
 		
 		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(self.num-1, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
-		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(2, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
 		self.Pint = jnp.zeros_like(self.P) 
 	
@@ -66,7 +66,7 @@ class cem_planner():
 		self.nvar_single = jnp.shape(self.P_jax)[1]
 		self.nvar = self.nvar_single*self.num_dof 
   
-		self.rho_ineq = 20.0
+		self.rho_ineq = 5.0
 		self.rho_projection = 1.0
 
 		self.A_projection = jnp.identity(self.nvar)
