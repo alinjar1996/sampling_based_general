@@ -84,14 +84,16 @@ class Planner(Node):
             self.data_buffers = {
                 'batch_size': [num_batch],
                 'horizon': [num_steps],
-                'theta': [],           # Joint positions over time
+                'slider_pos': [],           # Joint positions over time
                 'force': [],          # force commands over time  
                 'cost_cem': [],        # CEM cost over time
                 'cost_theta_cem': [],      # Theta cost component
-                'cost_thetadot_cem': [],      # Theta Dot cost component
+                'cost_velocity_cem': [],      # Velocity cost component
+                'cost_centering_cem': [],      # Slider position cost component
                 'cost_control_cem': [],    # Control cost component
                 'total_time': [],       # Timestamps
-                'theta_horizon': [],   # Planned theta horizon 
+                'joint_pos_horizon': [],   # Planned joint pos horizon 
+                'joint_pos_horizon_all': [],   # Planned joint pos horizon 
                 'force_horizon': [], # Planned force horizon
                 'force_samples': [], # force sample
                 'force_filtered': [], # force filtered
@@ -107,7 +109,8 @@ class Planner(Node):
 
         cost_weights = {
             'theta': 1.0,
-            'thetadot': 0.01,
+            'centering': 1.0,
+            'velocity': 0.01,
             'control': 0.001
         }
 
@@ -261,7 +264,8 @@ class Planner(Node):
           cost_cem, 
           cost_list_cem, 
           force_horizon, 
-          theta_horizon, 
+          joint_pos_horizon, 
+          joint_pos_horizon_all,
           tip_trace_planned,
           tip_trace_all,
           force_samples,
@@ -269,23 +273,29 @@ class Planner(Node):
           primal_res,
           fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel, current_force)
         
-        # cost_theta_cem, cost_control_cem = cost_list_cem
-        cost_theta_cem, cost_thetadot_cem, cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1], cost_list_cem[:, 2]
-        cost_theta, cost_thetadot, cost_control = cost_list_cem[-1]
+        #cost_theta_cem, cost_velocity_cem, cost_centering_cem ,cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1], cost_list_cem[:, 2], cost_list_cem[:, 3]
+        cost_theta_cem, \
+        cost_velocity_cem, \
+        cost_centering_cem, \
+        cost_control_cem = cost_list_cem[:, [0, 1, 2, 3]].T
+
+        cost_theta, cost_velocity, cost_centering, cost_control = cost_list_cem[-1]
 
         # STORE THE DATA
         if self.record_data_:
             current_time = time.time() - self.traj_time_start
             
-            self.data_buffers['theta'].append(current_pos.copy())
+            self.data_buffers['slider_pos'].append(current_pos.copy())
             # self.data_buffers['force'].append(self.force.copy())
             self.data_buffers['force'].append(np.atleast_1d(np.squeeze(self.force.copy())))
             self.data_buffers['cost_cem'].append(cost_cem.copy())
             self.data_buffers['cost_theta_cem'].append(cost_theta_cem)
-            self.data_buffers['cost_thetadot_cem'].append(cost_thetadot_cem)
+            self.data_buffers['cost_velocity_cem'].append(cost_velocity_cem)
+            self.data_buffers['cost_centering_cem'].append(cost_centering_cem)
             self.data_buffers['cost_control_cem'].append(cost_control_cem)
             self.data_buffers['total_time'].append(current_time)
-            self.data_buffers['theta_horizon'].append(theta_horizon.copy())
+            self.data_buffers['joint_pos_horizon'].append(joint_pos_horizon.copy())
+            self.data_buffers['joint_pos_horizon_all'].append(joint_pos_horizon_all.copy())
             self.data_buffers['force_horizon'].append(force_horizon.copy())
             self.data_buffers['force_samples'].append(force_samples.copy())
             self.data_buffers['force_filtered'].append(force_filtered.copy())
@@ -327,7 +337,8 @@ class Planner(Node):
               f'\n| Step Time: {"%.0f"%((time.time() - start_time)*1000)}ms '
               f'\n| Cost: {np.round(cost_cem[-1], 2)} '
               f'\n| Cost_Theta: {np.round(cost_theta, 2)} ', 
-              f'\n| Cost_ThetaDot: {np.round(cost_thetadot, 2)} ', 
+              f'\n| cost_Velocity: {np.round(cost_velocity, 2)} ', 
+              f'\n| cost_Centering: {np.round(cost_centering, 2)} ', 
               f'\n| Cost_Control: {np.round(cost_control, 2)} ', flush=True)
         
         print("=" * 40)
@@ -338,7 +349,7 @@ class Planner(Node):
 
     def save_data(self):
         """Save all recorded data to file"""
-        if not self.record_data_ or not self.data_buffers['theta']:
+        if not self.record_data_ or not self.data_buffers['slider_pos']:
             print("No data to save or recording disabled")
             return
             
@@ -346,14 +357,16 @@ class Planner(Node):
         save_dict = {
             'batch_size': np.array(self.data_buffers['batch_size']),
             'horizon': np.array(self.data_buffers['horizon']),
-            'theta': np.array(self.data_buffers['theta']),
+            'slider_pos': np.array(self.data_buffers['slider_pos']),
             'force': np.array(self.data_buffers['force']),
             'cost_cem': np.array(self.data_buffers['cost_cem']),
             'cost_theta_cem': np.array(self.data_buffers['cost_theta_cem']),
-            'cost_thetadot_cem': np.array(self.data_buffers['cost_thetadot_cem']),
+            'cost_velocity_cem': np.array(self.data_buffers['cost_velocity_cem']),
+            'cost_centering_cem': np.array(self.data_buffers['cost_centering_cem']),
             'cost_control_cem': np.array(self.data_buffers['cost_control_cem']),
             'total_time': np.array(self.data_buffers['total_time']),
-            'theta_horizon': np.array(self.data_buffers['theta_horizon']),
+            'joint_pos_horizon': np.array(self.data_buffers['joint_pos_horizon']),
+            'joint_pos_horizon_all': np.array(self.data_buffers['joint_pos_horizon_all']),
             'force_horizon': np.array(self.data_buffers['force_horizon']),
             'force_samples': np.array(self.data_buffers['force_samples']),
             'force_filtered': np.array(self.data_buffers['force_filtered']),
@@ -369,7 +382,7 @@ class Planner(Node):
         # Save data
         np.savez(self.pathes["trajectory"], **save_dict)
         print(f"Data saved to {self.pathes['trajectory']}")
-        print(f"Recorded {len(self.data_buffers['theta'])} time steps")
+        print(f"Recorded {len(self.data_buffers['slider_pos'])} time steps")
     
     def close_connection(self):
         if self.use_hardware:
@@ -394,7 +407,7 @@ class Planner(Node):
     #         success=np.array(self.data_buffers['success']),
     #         reason=np.array(self.data_buffers['reason']),
     #         target_0=np.array(self.data_buffers['target_0']),
-    #         theta=np.array(self.data_buffers['theta'], dtype=object),
+    #         theta=np.array(self.data_buffers['slider_pos'], dtype=object),
     #         thetadot=np.array(self.data_buffers['thetadot'], dtype=object),
     #         cost_r=np.array(self.data_buffers['cost_r'], dtype=object),
     #         cost_eef_to_obj=np.array(self.data_buffers['cost_eef_to_obj'], dtype=object),

@@ -472,8 +472,15 @@ class cem_planner():
 		mjx_data = self.jit_step(self.mjx_model, mjx_data)
 
 		# Get joint positions and end-effector states
-		theta = mjx_data.qpos[1]  #Joint indices Checked from hydrax and verified after lading joints from xml 
-		thetadot = mjx_data.qvel[1]
+
+		#Joint indices: 0 : slider 1: hinge joint: Checked from hydrax and verified after lading joints from xml 
+
+		# theta = mjx_data.qpos[1]  
+		# thetadot = mjx_data.qvel[1]
+
+		joint_pos = mjx_data.qpos
+		joint_vel = mjx_data.qvel  
+
 
 		tip_pos = mjx_data.site_xpos[self.tip]
 		
@@ -481,8 +488,8 @@ class cem_planner():
 		# collision = mjx_data.contact.dist[self.mask]
 
 		return mjx_data, (
-			theta, 
-			thetadot,
+			joint_pos, 
+			joint_vel,
 			tip_pos
 		)
 	
@@ -541,16 +548,18 @@ class cem_planner():
 		# Call self.mjx_step_force instead of self.mjx_step.
 		mjx_data_final, out = jax.lax.scan(self.mjx_step_force, mjx_data, force_single.T, length=self.num)
 		
-		theta, thetadot, tip_pos = out
+		joint_pos, joint_vel, tip_pos = out
+
 
 		# sensor_data = mjx_data_final.sensordata
 		
-		return theta.T.flatten(), thetadot.T.flatten(), tip_pos
+		# return joint_pos.T.flatten(), joint_vel.T.flatten(), tip_pos
+		return joint_pos, joint_vel, tip_pos
 	
 
 
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_cost_single(self, force_single, theta, thetadot, cost_weights):
+	def compute_cost_single(self, force_single, joint_pos, joint_vel, cost_weights):
 	
 
 		# # --- Inline sensor extraction ---
@@ -571,21 +580,26 @@ class cem_planner():
 			#jax.debug.print("theta_err {}", theta_err)
 			return jnp.sum(discounts * jnp.square(theta_err))
 
-		theta_cost = _distance_to_upright(theta)
+		theta_cost = _distance_to_upright(joint_pos[:,1])
 
-		thetadot_cost = jnp.sum(discounts * jnp.square(thetadot))
+		centering_cost = jnp.sum(jnp.square(joint_pos[:,0]))
+
+		# thetadot_cost = jnp.sum(discounts * jnp.square(joint_vel))
+		velocity_cost = jnp.sum(discounts[:, None] * jnp.square(joint_vel))
 
 		control_cost = jnp.sum(discounts * jnp.square(force_single))
 
 		cost = (
 			cost_weights['theta'] * theta_cost 
-			+ cost_weights['thetadot'] * thetadot_cost 
+			+ cost_weights['velocity'] * velocity_cost
+			+ cost_weights['centering'] * centering_cost
 			+ cost_weights['control'] * control_cost 
 		)	
 
 		cost_list = jnp.array([
 			cost_weights['theta'] * theta_cost, 
-			cost_weights['thetadot'] * theta_cost, 
+			cost_weights['velocity'] * theta_cost, 
+			cost_weights['centering'] * centering_cost,
 			cost_weights['control'] * control_cost
 		])
 
@@ -603,7 +617,7 @@ class cem_planner():
 		key, subkey = jax.random.split(key)
 		# xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.009*jnp.identity(self.nvar), (self.num_batch, ))
 		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov, (self.num_batch, ))
-		xi_samples = jnp.clip(xi_samples, a_min=-1.8, a_max=1.8)
+		xi_samples = jnp.clip(xi_samples, a_min=-1.0, a_max=1.0)
 		return xi_samples, key
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -701,8 +715,12 @@ class cem_planner():
 
 		mjx_data_current = carry[-1]
 
-		theta, thetadot, tip_pos = self.compute_rollout_batch(mjx_data_current, force, init_pos, init_vel)
-		cost_batch, cost_list_batch = self.compute_cost_batch(force, theta, thetadot, cost_weights)
+		joint_pos, joint_vel, tip_pos = self.compute_rollout_batch(mjx_data_current, force, init_pos, init_vel)
+
+		# jax.debug.print("joint_pos {}", jnp.shape(joint_pos))
+
+
+		cost_batch, cost_list_batch = self.compute_cost_batch(force, joint_pos, joint_vel, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
 		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
@@ -710,7 +728,7 @@ class cem_planner():
 
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
-		return carry, (cost_batch, cost_list_batch, force, theta, 
+		return carry, (cost_batch, cost_list_batch, force, joint_pos, 
 				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, tip_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -738,12 +756,20 @@ class cem_planner():
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
-		cost_batch, cost_list_batch, force, theta, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_filtered ,tip_pos = out
+		cost_batch, cost_list_batch, force, joint_pos, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_filtered ,tip_pos = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
 		best_forces = force[-1][idx_min].reshape((self.num_dof, self.num)).T
-		best_traj = theta[-1][idx_min].reshape((self.num_dof, self.num)).T
+
+		print("joint_pos", joint_pos.shape)
+        
+
+		#This has 2 as first dimension because there are 2 joints
+		best_traj = joint_pos[-1][idx_min]  #.reshape((2, self.num)).T
+
+		print("best_traj", best_traj.shape)
+
 
 		best_cost_list = cost_list_batch[-1][idx_min]
 
@@ -769,7 +795,7 @@ class cem_planner():
 			xi_cov,
 			xi_filtered,
 			force,
-			theta,
+			joint_pos,
 			avg_res_primal,
 			avg_res_fixed,
 			primal_residuals,

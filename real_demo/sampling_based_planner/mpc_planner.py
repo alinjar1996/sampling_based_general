@@ -54,7 +54,7 @@ class run_cem_planner:
         )
         
         # Initialize CEM variables
-        self.cov_scalar_coeff = 1.0
+        self.cov_scalar_coeff = 0.5
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
         self.xi_cov_single = self.cov_scalar_coeff*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
@@ -117,8 +117,8 @@ class run_cem_planner:
         # current_mjx_data = sim_data
 
         # CEM computation
-        cost_cem, cost_list_cem, force_horizon, theta_horizon, \
-        xi_mean, xi_cov, force_filtered_cem, force_all, th_all, avg_primal_res, avg_fixed_res, \
+        cost_cem, cost_list_cem, force_horizon, joint_pos_horizon, \
+        xi_mean, xi_cov, force_filtered_cem, force_all, joint_pos_horizon_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, tip_trace_planned, tip_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
@@ -144,7 +144,8 @@ class run_cem_planner:
         return (force, cost_cem, 
                 cost_list_cem, 
                 force_horizon, 
-                theta_horizon, 
+                joint_pos_horizon,
+                joint_pos_horizon_all, 
                 tip_trace_planned, 
                 tip_trace_all, 
                 force_all, 
