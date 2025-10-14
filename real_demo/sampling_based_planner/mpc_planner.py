@@ -18,8 +18,8 @@ from io import StringIO
 class run_cem_planner:
     def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
                  maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=None,
-                 inference=False, max_joint_inttorque=0.0, max_joint_torque=1.0, 
-                 max_joint_dtorque=2.0, max_joint_ddtorque=4.0,
+                 inference=False, max_joint_intforce=0.0, max_joint_force=1.0, 
+                 max_joint_dforce=2.0, max_joint_ddforce=4.0,
                  device='cuda', cost_weights=None):
         
         # Initialize parameters
@@ -47,10 +47,10 @@ class run_cem_planner:
             num_elite=num_elite,
             timestep=timestep,
             maxiter_projection=maxiter_projection,
-            max_joint_inttorque=max_joint_inttorque,
-            max_joint_torque=max_joint_torque,
-            max_joint_dtorque=max_joint_dtorque,
-            max_joint_ddtorque=max_joint_ddtorque
+            max_joint_intforce=max_joint_intforce,
+            max_joint_force=max_joint_force,
+            max_joint_dforce=max_joint_dforce,
+            max_joint_ddforce=max_joint_ddforce
         )
         
         # Initialize CEM variables
@@ -90,7 +90,7 @@ class run_cem_planner:
         return C
 
         
-    def compute_control(self, sim_data, current_pos, current_vel, current_torque):
+    def compute_control(self, sim_data, current_pos, current_vel, current_force):
         """Compute optimal control using CEM/MPC"""
         
         # Handle covariance matrix numerical stability
@@ -117,8 +117,8 @@ class run_cem_planner:
         # current_mjx_data = sim_data
 
         # CEM computation
-        cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
-        xi_mean, xi_cov, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
+        cost_cem, cost_list_cem, force_horizon, theta_horizon, \
+        xi_mean, xi_cov, force_filtered_cem, force_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, tip_trace_planned, tip_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
@@ -126,7 +126,7 @@ class run_cem_planner:
             current_pos,
             current_vel,
             np.zeros(self.num_dof),  # Zero initial acceleration
-            current_torque,
+            current_force,
             self.lamda_init,
             self.s_init,
             self.xi_samples,
@@ -135,19 +135,19 @@ class run_cem_planner:
 
         
         # Get mean velocity command (average middle 90% of trajectory)
-        # torque_cem = np.mean(torque_horizon[1:20], axis=0)
-        # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
+        # force_cem = np.mean(force_horizon[1:20], axis=0)
+        # force_cem = np.mean(force_horizon[1:int(0.8*self.num_steps)], axis=0)
 
-        # torque = torque_cem
-        torque = torque_horizon
+        # force = force_cem
+        force = force_horizon
         
-        return (torque, cost_cem, 
+        return (force, cost_cem, 
                 cost_list_cem, 
-                torque_horizon, 
+                force_horizon, 
                 theta_horizon, 
                 tip_trace_planned, 
                 tip_trace_all, 
-                torque_all, 
-                torque_filtered_cem,
+                force_all, 
+                force_filtered_cem,
                 primal_res,
                 fixed_res)

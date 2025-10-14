@@ -62,20 +62,20 @@ class Planner(Node):
         if self.record_data_:
 
             # self.pathes = {
-            #     "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'setup_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_{maxiter_projection}_{self.timestep}_{num_elite}_{self.idx}.npz'),
-            #     "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_{maxiter_projection}_{self.timestep}_{num_elite}_{self.idx}.npz'),
+            #     "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'cart_pole_{num_batch}_{num_steps}_{maxiter_cem}_{maxiter_projection}_{self.timestep}_{num_elite}_{self.idx}.npz'),
+            #     "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_cart_pole_{num_batch}_{num_steps}_{maxiter_cem}_{maxiter_projection}_{self.timestep}_{num_elite}_{self.idx}.npz'),
             #     # "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_walker{self.idx}.npz'),
             # }
 
             self.pathes = {
                 "setup": os.path.join(
                     PACKAGE_DIR, "data", "planner", "setup",
-                    f"setup_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_"
+                    f"setup_cart_pole_{num_batch}_{num_steps}_{maxiter_cem}_"
                     f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
                 ),
                 "trajectory": os.path.join(
                     PACKAGE_DIR, "data", "planner", "trajectory",
-                    f"traj_pendulum_{num_batch}_{num_steps}_{maxiter_cem}_"
+                    f"traj_cart_pole_{num_batch}_{num_steps}_{maxiter_cem}_"
                     f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
                 )
             }
@@ -85,16 +85,16 @@ class Planner(Node):
                 'batch_size': [num_batch],
                 'horizon': [num_steps],
                 'theta': [],           # Joint positions over time
-                'torque': [],          # Torque commands over time  
+                'force': [],          # force commands over time  
                 'cost_cem': [],        # CEM cost over time
                 'cost_theta_cem': [],      # Theta cost component
                 'cost_thetadot_cem': [],      # Theta Dot cost component
                 'cost_control_cem': [],    # Control cost component
                 'total_time': [],       # Timestamps
                 'theta_horizon': [],   # Planned theta horizon 
-                'torque_horizon': [], # Planned torque horizon
-                'torque_samples': [], # torque sample
-                'torque_filtered': [], # torque filtered
+                'force_horizon': [], # Planned force horizon
+                'force_samples': [], # force sample
+                'force_filtered': [], # force filtered
                 'tip_trace_planned': [], # best tip_trace
                 'tip_trace_all': [], # tip_trace_all_samples
                 'primal_res': [], # Primal residual
@@ -111,13 +111,13 @@ class Planner(Node):
             'control': 0.001
         }
 
-        self.torque = np.zeros(self.num_dof)
-        self.torque_array = np.zeros(self.num_dof*num_steps)
+        self.force = np.zeros(self.num_dof)
+        self.force_array = np.zeros(self.num_dof*num_steps)
 
         
         
         # Initialize MuJoCo model and data
-        model_path = os.path.join(get_package_share_directory('real_demo'), 'pendulum_mjx', 'scene.xml')
+        model_path = os.path.join(get_package_share_directory('real_demo'), 'cart_pole_mjx', 'scene.xml')
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.model.opt.timestep = self.timestep
 
@@ -142,7 +142,7 @@ class Planner(Node):
         # robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
         #                         'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
         
-        robot_joints = np.array(['pendulum_joint'])
+        robot_joints = np.array(['slider'])
                          
         self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
         self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
@@ -249,25 +249,25 @@ class Planner(Node):
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
-        self.torque = np.mean(self.torque_array[1:5], axis = 0)
-        current_torque = self.torque
+        self.force = np.mean(self.force_array[1:5], axis = 0)
+        current_force = self.force
 
-        print("self.torque", self.torque)
+        print("self.force", self.force)
 
         
         
         # Compute control
-        (self.torque_array, 
+        (self.force_array, 
           cost_cem, 
           cost_list_cem, 
-          torque_horizon, 
+          force_horizon, 
           theta_horizon, 
           tip_trace_planned,
           tip_trace_all,
-          torque_samples,
-          torque_filtered,
+          force_samples,
+          force_filtered,
           primal_res,
-          fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
+          fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel, current_force)
         
         # cost_theta_cem, cost_control_cem = cost_list_cem
         cost_theta_cem, cost_thetadot_cem, cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1], cost_list_cem[:, 2]
@@ -278,29 +278,29 @@ class Planner(Node):
             current_time = time.time() - self.traj_time_start
             
             self.data_buffers['theta'].append(current_pos.copy())
-            # self.data_buffers['torque'].append(self.torque.copy())
-            self.data_buffers['torque'].append(np.atleast_1d(np.squeeze(self.torque.copy())))
+            # self.data_buffers['force'].append(self.force.copy())
+            self.data_buffers['force'].append(np.atleast_1d(np.squeeze(self.force.copy())))
             self.data_buffers['cost_cem'].append(cost_cem.copy())
             self.data_buffers['cost_theta_cem'].append(cost_theta_cem)
             self.data_buffers['cost_thetadot_cem'].append(cost_thetadot_cem)
             self.data_buffers['cost_control_cem'].append(cost_control_cem)
             self.data_buffers['total_time'].append(current_time)
             self.data_buffers['theta_horizon'].append(theta_horizon.copy())
-            self.data_buffers['torque_horizon'].append(torque_horizon.copy())
-            self.data_buffers['torque_samples'].append(torque_samples.copy())
-            self.data_buffers['torque_filtered'].append(torque_filtered.copy())
+            self.data_buffers['force_horizon'].append(force_horizon.copy())
+            self.data_buffers['force_samples'].append(force_samples.copy())
+            self.data_buffers['force_filtered'].append(force_filtered.copy())
             self.data_buffers['tip_trace_planned'].append(tip_trace_planned.copy())
             self.data_buffers['tip_trace_all'].append(tip_trace_all.copy())
             self.data_buffers['primal_res'].append(primal_res.copy())
             self.data_buffers['fixed_res'].append(fixed_res.copy())
         
         
-        # self.data.ctrl[self.joint_ctrl_indices] = self.torque
+        # self.data.ctrl[self.joint_ctrl_indices] = self.force
 
         # self.data.ctrl[:] = np.zeros(len(self.joint_mask_vel))
-        # self.data.ctrl[self.joint_mask_vel] = self.torque
+        # self.data.ctrl[self.joint_mask_vel] = self.force
 
-        self.data.ctrl[self.actuator_ctrl_indices] = self.torque
+        self.data.ctrl[self.actuator_ctrl_indices] = self.force
         
 
         # print("self.data.qvel", self.data.qvel)
@@ -347,16 +347,16 @@ class Planner(Node):
             'batch_size': np.array(self.data_buffers['batch_size']),
             'horizon': np.array(self.data_buffers['horizon']),
             'theta': np.array(self.data_buffers['theta']),
-            'torque': np.array(self.data_buffers['torque']),
+            'force': np.array(self.data_buffers['force']),
             'cost_cem': np.array(self.data_buffers['cost_cem']),
             'cost_theta_cem': np.array(self.data_buffers['cost_theta_cem']),
             'cost_thetadot_cem': np.array(self.data_buffers['cost_thetadot_cem']),
             'cost_control_cem': np.array(self.data_buffers['cost_control_cem']),
             'total_time': np.array(self.data_buffers['total_time']),
             'theta_horizon': np.array(self.data_buffers['theta_horizon']),
-            'torque_horizon': np.array(self.data_buffers['torque_horizon']),
-            'torque_samples': np.array(self.data_buffers['torque_samples']),
-            'torque_filtered': np.array(self.data_buffers['torque_filtered']),
+            'force_horizon': np.array(self.data_buffers['force_horizon']),
+            'force_samples': np.array(self.data_buffers['force_samples']),
+            'force_filtered': np.array(self.data_buffers['force_filtered']),
             'tip_trace_planned': np.array(self.data_buffers['tip_trace_planned']),
             'tip_trace_all': np.array(self.data_buffers['tip_trace_all']),
             'primal_res': np.array(self.data_buffers['primal_res']),

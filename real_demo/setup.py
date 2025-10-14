@@ -15,7 +15,7 @@ data_files=[
         (os.path.join('share', 'gripper_srv', 'srv'), glob('srv/*.msg')),
     ]
 
-folders = ['pendulum_mjx', 'mj_planner', 'data', 'ik_based_planner', 'collision_free_ik', 'sampling_based_planner']
+folders = ['cart_pole_mjx', 'mj_planner', 'data', 'ik_based_planner', 'collision_free_ik', 'sampling_based_planner']
 
 for folder in folders:
     for dirpath, dirnames, filenames in os.walk(folder):
@@ -38,7 +38,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'pendulum_demo = real_demo.pendulum_demo:main',
+            'cart_pole_demo = real_demo.cart_pole_demo:main',
             'visualizer = real_demo.visualizer:main'
         ],
     },
