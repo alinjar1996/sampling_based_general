@@ -62,8 +62,9 @@ class run_cem_planner:
         )
         
         # Initialize CEM variables
+        self.cov_coeff_scalar = 0.5
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
-        self.xi_cov_single = 5*jnp.identity(self.cem.nvar_single)
+        self.xi_cov_single = self.cov_coeff_scalar*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
         self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.xi_cov_single)
         self.lamda_init = jnp.zeros((num_batch, self.cem.nvar))
@@ -102,14 +103,14 @@ class run_cem_planner:
         
         # Handle covariance matrix numerical stability
         if np.isnan(self.xi_cov).any():
-            self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), 10*jnp.identity(self.cem.nvar_single))
+            self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.cov_coeff_scalar*jnp.identity(self.cem.nvar_single))
         if np.isnan(self.xi_mean).any():
             self.xi_mean = jnp.zeros(self.cem.nvar)
 
         try:
             np.linalg.cholesky(self.xi_cov)
         except np.linalg.LinAlgError:
-            self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), 10*jnp.identity(self.cem.nvar_single))  
+            self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.cov_coeff_scalar*jnp.identity(self.cem.nvar_single))  
         
         # Generate samples
         self.xi_samples, self.key = self.cem.compute_xi_samples(self.key, self.xi_mean, self.xi_cov)
@@ -118,6 +119,7 @@ class run_cem_planner:
         # current_mjx_data = mujoco.mjx.put_data(self.model, self.data)
         self.mjx_model = mujoco.mjx.put_model(self.model)
         current_mjx_data = mujoco.mjx.put_data(self.model, sim_data)
+        current_mjx_data.replace(qpos = current_pos, qvel = current_vel)
         # current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data )
         # current_mjx_data = sim_data
 

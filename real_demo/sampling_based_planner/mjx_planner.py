@@ -211,7 +211,7 @@ class cem_planner():
             self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_zaxis"
         )
 		self.target_velocity = 1.5
-		self.target_height = 1.25
+		self.target_height = 1.2
 
 		self.torso = self.model.site(name="torso_site").id
 
@@ -631,7 +631,8 @@ class cem_planner():
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_xi_samples(self, key, xi_mean, xi_cov ):
 		key, subkey = jax.random.split(key)
-		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.003*jnp.identity(self.nvar), (self.num_batch, ))
+		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov, (self.num_batch, ))
+		xi_samples = jnp.clip(xi_samples, a_min =-1.0, a_max=1.0)
 		return xi_samples, key
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -669,7 +670,7 @@ class cem_planner():
 		mean_control = (1-self.alpha_mean)*mean_control_prev + self.alpha_mean*(jnp.sum( (xi_ellite * w[:,jnp.newaxis]) , axis= 0)/ sum_w)
 		diffs = (xi_ellite - mean_control)
 		prod_result = self.vec_product(diffs, w)
-		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.0001*jnp.identity(self.nvar)
+		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.5*jnp.identity(self.nvar)
 		cov_control = self.repair_cov(cov_control)
 		return mean_control, cov_control
 	
@@ -712,9 +713,9 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		torque = jnp.dot(self.A_torque, xi_filtered.T).T
+		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		# torque = jnp.dot(self.A_torque, xi_samples.T).T
+		torque = jnp.dot(self.A_torque, xi_samples.T).T
 
 		mjx_data_current = carry[-1]
 
@@ -751,7 +752,7 @@ class cem_planner():
 		
 		key, subkey = jax.random.split(self.key)
 
-		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_torque, cost_weights, current_mjx_data)
+		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_vel, cost_weights, current_mjx_data)
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)

@@ -98,10 +98,10 @@ class Planner(Node):
         self.target_idx = 0
 
         cost_weights = {
-            'height': 100.0,
-			'orientation': 100.0,
-            'velocity': 100.0,
-            'control': 10.0
+            'height': 10.0,
+			'orientation': 3.0,
+            'velocity': 1.0,
+            'control': 0.1
         }
 
 
