@@ -31,8 +31,8 @@ from math_utils.bernstein_coeff_ordern_arbitinterval import bernstein_coeff_orde
 class cem_planner():
 
 	def __init__(self, model=None, num_dof=None, num_batch=None, num_steps=None, timestep=None, maxiter_cem=None, num_elite=None, 
-			     maxiter_projection=None, max_joint_intforce = None ,max_joint_force = None, 
-				 max_joint_dforce = None, max_joint_ddforce = None):
+			     maxiter_projection=None, max_joint_pos = None, 
+				 max_joint_vel = None, max_joint_acc = None):
 		super(cem_planner, self).__init__()
 	    
 
@@ -71,91 +71,76 @@ class cem_planner():
 
 		self.A_projection = jnp.identity(self.nvar)
 
-		A_force_ineq, A_force = self.get_A_force()
-		self.A_force_ineq = jnp.asarray(A_force_ineq) 
-		self.A_force = jnp.asarray(A_force)
+		A_pos_ineq, A_pos = self.get_A_pos()
+		self.A_pos_ineq = jnp.asarray(A_pos_ineq) 
+		self.A_pos = jnp.asarray(A_pos)
 
-		A_dforce_ineq, A_dforce = self.get_A_dforce()
-		self.A_dforce_ineq = jnp.asarray(A_dforce_ineq) 
-		self.A_dforce = jnp.asarray(A_dforce)
+		A_vel_ineq, A_vel = self.get_A_vel()
+		self.A_vel_ineq = jnp.asarray(A_vel_ineq) 
+		self.A_vel = jnp.asarray(A_vel)
 
-		A_ddforce_ineq, A_ddforce = self.get_A_ddforce()
-		self.A_ddforce_ineq = jnp.asarray(A_ddforce_ineq)
-		self.A_ddforce = jnp.asarray(A_ddforce)
+		A_acc_ineq, A_acc = self.get_A_acc()
+		self.A_acc_ineq = jnp.asarray(A_acc_ineq)
+		self.A_acc = jnp.asarray(A_acc)
   
-		A_int_force_ineq, A_int_force = self.get_A_int_force()
-		self.A_int_force_ineq = jnp.asarray(A_int_force_ineq) 
-		self.A_int_force = jnp.asarray(A_int_force)
 
 		# Combined control matrix (like A_control in )
 		self.A_control = jnp.vstack((
-			self.A_force_ineq,
-			self.A_dforce_ineq,
-			self.A_ddforce_ineq
-		#	self.A_int_force_ineq
+			self.A_pos_ineq,
+			self.A_vel_ineq,
+			self.A_acc_ineq
 		))
 
 		A_eq = self.get_A_eq()
 		self.A_eq = jnp.asarray(A_eq)
 
-		A_intforce, A_force, A_dforce, A_ddforce = self.get_A_force_control()
+		A_pos, A_vel, A_acc = self.get_A_pos_control()
 
-		self.A_intforce = np.asarray(A_intforce)
-		self.A_force = np.asarray(A_force)
-		self.A_dforce = np.asarray(A_dforce)
-		self.A_ddforce = np.asarray(A_ddforce)
+		self.A_pos = np.asarray(A_pos)
+		self.A_vel = np.asarray(A_vel)
+		self.A_acc = np.asarray(A_acc)
 		
 		self.key= jax.random.PRNGKey(42)
 		self.maxiter_projection = maxiter_projection
 		self.maxiter_cem = maxiter_cem
 
-		self.force_max = max_joint_force
-		self.dforce_max = max_joint_dforce
-		self.ddforce_max = max_joint_ddforce
-		# self.intforce_max = max_joint_intforce		
+		self.pos_max = max_joint_pos
+		self.vel_max = max_joint_vel
+		self.acc_max = max_joint_acc
 
-				
-		
-		    
-    	# Calculating number of Inequality constraints
-		# self.num_force = self.num
-		# self.num_dforce = self.num - 1
-		# self.num_ddforce = self.num - 2
-		# self.num_intforce = self.num
+			
 
-		self.num_force   = self.P.shape[0]       # number of time samples for force 
-		self.num_dforce  = self.Pdot.shape[0]    # number of samples for rate of change)
-		self.num_ddforce = self.Pddot.shape[0]   # number of samples for double rate of change
-		self.num_intforce = self.Pint.shape[0]   # number of samples for integrated force
+		self.num_pos   = self.P.shape[0]       # number of time samples for pos
+		self.num_vel  = self.Pdot.shape[0]    # number of samples for rate of change)
+		self.num_acc = self.Pddot.shape[0]   # number of samples for double rate of change
 
-		self.num_force_constraints = 2 * self.num_force * num_dof
-		self.num_dforce_constraints = 2 * self.num_dforce * num_dof
-		self.num_ddforce_constraints = 2 * self.num_ddforce * num_dof
-		self.num_intforce_constraints = 2 * self.num_intforce * num_dof
-		self.num_total_constraints = (self.num_force_constraints + self.num_dforce_constraints + 
-								      self.num_ddforce_constraints)
+		self.num_pos_constraints = 2 * self.num_pos * num_dof
+		self.num_vel_constraints = 2 * self.num_vel * num_dof
+		self.num_acc_constraints = 2 * self.num_acc * num_dof
+		self.num_total_constraints = (self.num_pos_constraints + self.num_vel_constraints + 
+								      self.num_acc_constraints)
 		self.num_total_constraints_per_dof = self.num_total_constraints / self.num_dof
 
 
 
-		self.b_force = jnp.hstack((
-			self.force_max * jnp.ones((self.num_batch, self.num_force_constraints // 2)),
-			self.force_max * jnp.ones((self.num_batch, self.num_force_constraints // 2))
+		self.b_pos = jnp.hstack((
+			self.force_max * jnp.ones((self.num_batch, self.num_pos_constraints // 2)),
+			self.force_max * jnp.ones((self.num_batch, self.num_pos_constraints // 2))
 		))
 
-		self.b_dforce = jnp.hstack((
-			self.dforce_max * jnp.ones((self.num_batch, self.num_dforce_constraints // 2)),
-			self.dforce_max * jnp.ones((self.num_batch, self.num_dforce_constraints // 2))
+		self.b_vel = jnp.hstack((
+			self.vel_max * jnp.ones((self.num_batch, self.num_vel_constraints // 2)),
+			self.vel_max * jnp.ones((self.num_batch, self.num_vel_constraints // 2))
 		))
 
-		self.b_ddforce = jnp.hstack((
-			self.ddforce_max * jnp.ones((self.num_batch, self.num_ddforce_constraints // 2)),
-			self.ddforce_max * jnp.ones((self.num_batch, self.num_ddforce_constraints // 2))
+		self.b_acc = jnp.hstack((
+			self.acc_max * jnp.ones((self.num_batch, self.num_acc_constraints // 2)),
+			self.acc_max * jnp.ones((self.num_batch, self.num_acc_constraints // 2))
 		))
         
         
 
-		self.b_control = jnp.hstack((self.b_force, self.b_dforce, self.b_ddforce))
+		self.b_control = jnp.hstack((self.b_pos, self.b_vel, self.b_acc))
 
 		self.ellite_num = int(self.num_elite*self.num_batch)
 
@@ -199,27 +184,20 @@ class cem_planner():
 
 	
 		# robot_joints = np.array(['pendulum_joint'])
-		robot_joints = np.array(['slider']) #Only actuated joint should be mentioned here
+		# robot_joints = np.array(['slider']) #Only actuated joint should be mentioned here
+		robot_joints = np.array(['FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint', 
+						   'FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint',
+						   'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint',
+						   'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint']) 
 		
 		self.joint_mask_pos = np.isin(np.array(joint_names_pos), robot_joints)
 		self.joint_mask_vel = np.isin(np.array(joint_names_vel), robot_joints)
 		self.joint_mask_ctrl = np.isin(np.array(joint_names_ctrl), robot_joints)
-		self.joint_ctrl_indices = jnp.where(self.joint_mask_ctrl)[0]
-		actuator_joint_ids = self.model.actuator_trnid[:, 0]
-		self.actuator_ctrl_indices = [
-			i for i, j in enumerate(actuator_joint_ids)
-			if self.joint_mask_ctrl[j]
-		]
+        
 
-		# # Add this after your existing joint mask code in __init__
-		# print("\n=== DEBUG: JOINT MASKS ===")
-		# print("Position-controlled joints:")
-		# for i, name in enumerate(joint_names_pos):
-		# 	print(f"  {i}: '{name}' -> controlled: {self.joint_mask_pos[i]}")
-
-		print("\ force-controlled joints:")  
-		for i, name in enumerate(joint_names_ctrl):
-			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_ctrl[i]}")
+		print("\ Position-controlled joints:")  
+		for i, name in enumerate(joint_names_pos):
+			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_pos[i]}")
 
 		# print("\nRobot joints:", robot_joints)
 
@@ -247,10 +225,12 @@ class cem_planner():
 
 
 
-		self.tip = self.model.site(name="tip").id
+		# self.tip = self.model.site(name="tip").id
+
+		self.torso = self.model.site(name="imu").id
 
 
-		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_force, in_axes = (None, 0, None, None))
+		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, 0, None))
 		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
           
@@ -276,41 +256,34 @@ class cem_planner():
 	def angle_normalize(self, x):
 		return ((x + jnp.pi) % (2 * jnp.pi)) - jnp.pi
     
-	def get_A_force_control(self):
+	def get_A_pos_control(self):
 
 		# This is valid while dealing with knots anfd projecting into pos,vel,acc space with Bernstein Polynomials
-		# A_intforce = np.kron(np.identity(self.num_dof), self.P )
-		# A_force = np.kron(np.identity(self.num_dof), self.Pdot )
-		# A_dforce = np.kron(np.identity(self.num_dof), self.Pddot )
+		# A_pos = np.kron(np.identity(self.num_dof), self.Pd )
+		# A_vel = np.kron(np.identity(self.num_dof), self.Pdot )
         
         # This is valid while not using knots and bernstein polynomials; directlly using velocity
-		A_intforce = np.kron(np.identity(self.num_dof), self.Pint )
-		A_force = np.kron(np.identity(self.num_dof), self.P )
-		A_dforce = np.kron(np.identity(self.num_dof), self.Pdot )
-		A_ddforce = np.kron(np.identity(self.num_dof), self.Pddot )
+		A_pos = np.kron(np.identity(self.num_dof), self.P )
+		A_vel = np.kron(np.identity(self.num_dof), self.Pdot )
+		A_acc = np.kron(np.identity(self.num_dof), self.Pddot )
 
-		return A_intforce, A_force, A_dforce, A_ddforce	
+		return A_pos, A_vel, A_acc	
 
 
-	def get_A_int_force(self):
-		A_int_force = np.vstack(( self.Pint, -self.Pint))
-		A_int_force_ineq = np.kron(np.identity(self.num_dof), A_int_force )
-		return A_int_force_ineq, A_int_force
+	def get_A_pos(self):
+		A_pos = np.vstack(( self.P, -self.P ))
+		A_pos_ineq = np.kron(np.identity(self.num_dof), A_pos )
+		return A_pos_ineq, A_pos
+
+	def get_A_vel(self):
+		A_vel = np.vstack(( self.Pdot, -self.Pdot  ))
+		A_vel_ineq = np.kron(np.identity(self.num_dof), A_vel )
+		return A_vel_ineq, A_vel
 	
-	def get_A_force(self):
-		A_force = np.vstack(( self.P, -self.P ))
-		A_force_ineq = np.kron(np.identity(self.num_dof), A_force )
-		return A_force_ineq, A_force
-
-	def get_A_dforce(self):
-		A_dforce = np.vstack(( self.Pdot, -self.Pdot  ))
-		A_dforce_ineq = np.kron(np.identity(self.num_dof), A_dforce )
-		return A_dforce_ineq, A_dforce
-	
-	def get_A_ddforce(self):
-		A_ddforce = np.vstack(( self.Pddot, -self.Pddot  ))
-		A_ddforce_ineq = np.kron(np.identity(self.num_dof), A_ddforce )
-		return A_ddforce_ineq, A_ddforce
+	def get_A_acc(self):
+		A_acc = np.vstack(( self.Pddot, -self.Pddot  ))
+		A_acc_ineq = np.kron(np.identity(self.num_dof), A_acc )
+		return A_acc_ineq, A_acc
 	
 	def get_A_eq(self):
 		return np.kron(np.identity(self.num_dof), self.P[0])
@@ -425,136 +398,54 @@ class cem_planner():
 
 	
 
-	# @partial(jax.jit, static_argnums=(0,))
-	# def mjx_step(self, mjx_data, thetadot_single):
-	
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(thetadot_single)
-	# 	mjx_data = mjx_data.replace(qvel=qvel)
-		
-	# 	# Step the simulation
-	# 	mjx_data = self.jit_step(self.mjx_model, mjx_data)
-
-	# 	# Get joint positions and end-effector states
-	# 	theta = mjx_data.qpos[self.joint_mask_pos]
-
-	# 	torso_pos = mjx_data.site_xpos[self.torso]
-		
-
-		
-	# 	# Collision detection
-	# 	# collision = mjx_data.contact.dist[self.mask]
-	# 	collision = mjx_data.contact.dist
-
-	# 	return mjx_data, (
-	# 		theta, 
-	# 		torso_pos,
-	# 		collision
-	# 	)
-
-
 	@partial(jax.jit, static_argnums=(0,))
-	def mjx_step_force(self, mjx_data, force_single):
-		
-		# Apply the forces using the 'ctrl' field of mjx_data.
-		# We assume 'force_single' contains the forces for the joints
-		# corresponding to 'self.joint_mask_ctrl' (or similar mask for control inputs).
-		# NOTE: MuJoCo's control inputs are typically applied to 'mjx_data.ctrl'.
-		#ctrl = mjx_data.ctrl.at[self.joint_mask_ctrl].set(force_single)
-
-        # self.data.ctrl[self.actuator_ctrl_indices] = self.force
-		ctrl = mjx_data.ctrl.at[jnp.array(self.actuator_ctrl_indices)].set(force_single)
-
-		# ctrl = mjx_data.ctrl.at[self.actuator_ctrl_indices].set(force_single)
-		# ctrl = mjx_data.ctrl.at[self.joint_ctrl_indices].set(force_single)
-		mjx_data = mjx_data.replace(ctrl=ctrl)
+	def mjx_step(self, mjx_data, theta_single):
+	
+		qpos = mjx_data.qpos.at[self.joint_mask_pos].set(theta_single)
+		mjx_data = mjx_data.replace(qpos=qpos)
 		
 		# Step the simulation
 		mjx_data = self.jit_step(self.mjx_model, mjx_data)
 
 		# Get joint positions and end-effector states
+		theta = mjx_data.qpos[self.joint_mask_pos]
 
-		#Joint indices: 0 : slider 1: hinge joint: Checked from hydrax and verified after lading joints from xml 
+		torso_pos = mjx_data.site_xpos[self.torso]
+		
 
-		# theta = mjx_data.qpos[1]  
-		# thetadot = mjx_data.qvel[1]
-
-		joint_pos = mjx_data.qpos
-		joint_vel = mjx_data.qvel  
-
-
-		tip_pos = mjx_data.site_xpos[self.tip]
 		
 		# Collision detection
 		# collision = mjx_data.contact.dist[self.mask]
+		collision = mjx_data.contact.dist
 
 		return mjx_data, (
-			joint_pos, 
-			joint_vel,
-			tip_pos
+			theta, 
+			torso_pos,
+			collision
 		)
-	
+
 
 
 	# @partial(jax.jit, static_argnums=(0,))
 	# def compute_rollout_single(self, thetadot, init_pos, init_vel):
 
-	# 	mjx_data = self.mjx_data
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(init_vel)
-	# 	qpos = mjx_data.qpos.at[self.joint_mask_pos].set(init_pos)
 
-	# 	mjx_data = mjx_data.replace(qvel=qvel, qpos=qpos)
-
-	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
-	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
-	# 	theta, torso_pos, collision = out
-	# 	#Sensor data
-	# 	sensor_data = mjx_data_final.sensordata
-
-	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
-
-	# @partial(jax.jit, static_argnums=(0,))
-	# def compute_rollout_single(self, mjx_data_current, thetadot, init_pos, init_vel):
-	# 	# Use the passed-in current state instead of self.mjx_data
-	# 	# mjx_data_current = self.mjx_data
-	# 	qvel = mjx_data_current.qvel.at[self.joint_mask_vel].set(init_vel)
-	# 	qpos = mjx_data_current.qpos.at[self.joint_mask_pos].set(init_pos)
-		
-	# 	mjx_data = mjx_data_current.replace(qvel=qvel, qpos=qpos)
-		
-	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
-	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
-	# 	theta, torso_pos, collision = out
-	# 	sensor_data = mjx_data_final.sensordata
-		
-	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
 
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_rollout_single_force(self, mjx_data_current, forces, init_pos, init_vel):
-		# Initialize MJX data with initial position and velocity
+	def compute_rollout_single(self, mjx_data_current, theta, init_pos, init_vel):
+		# Use the passed-in current state instead of self.mjx_data
 		# mjx_data_current = self.mjx_data
-		# mjx_data = self.mjx_data
 		qvel = mjx_data_current.qvel.at[self.joint_mask_vel].set(init_vel)
 		qpos = mjx_data_current.qpos.at[self.joint_mask_pos].set(init_pos)
-
+		
 		mjx_data = mjx_data_current.replace(qvel=qvel, qpos=qpos)
-
-		# 2. Reshape the input forces for jax.lax.scan
-		# The input is now 'forces' (a control signal) instead of 'thetadot'.
-		# Note: 'self.num_dof' should likely be replaced by 'self.num_ctrl' or
-		# the dimension of the control space if they are different.
-		force_single = forces.reshape(self.num_dof, self.num)
 		
-		# 3. Perform the rollout using the force-based step function
-		# Call self.mjx_step_force instead of self.mjx_step.
-		mjx_data_final, out = jax.lax.scan(self.mjx_step_force, mjx_data, force_single.T, length=self.num)
+		theta_single = theta.reshape(self.num_dof, self.num)
+		mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, theta_single.T, length=self.num)
+		theta, torso_pos, collision = out
+		sensor_data = mjx_data_final.sensordata
 		
-		joint_pos, joint_vel, tip_pos = out
-
-
-		# sensor_data = mjx_data_final.sensordata
-		
-		# return joint_pos.T.flatten(), joint_vel.T.flatten(), tip_pos
-		return joint_pos, joint_vel, tip_pos
+		return theta.T.flatten(), torso_pos, collision, sensor_data
 	
 
 
@@ -706,16 +597,16 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		# force = jnp.dot(self.A_force, xi_filtered.T).T
+		# force = jnp.dot(self.A_pos, xi_filtered.T).T
 		
-		force = jnp.dot(self.A_force, xi_samples.T).T
+		force = jnp.dot(self.A_pos, xi_samples.T).T
 
 		# jax.debug.print("xi_samples {}", jnp.shape(xi_samples))
 		# jax.debug.print("force {}", jnp.shape(force))
 
 		mjx_data_current = carry[-1]
 
-		joint_pos, joint_vel, tip_pos = self.compute_rollout_batch(mjx_data_current, force, init_pos, init_vel)
+		joint_pos, joint_vel, torso_pos = self.compute_rollout_batch(mjx_data_current, force, init_pos, init_vel)
 
 		# jax.debug.print("joint_pos {}", jnp.shape(joint_pos))
 
@@ -728,8 +619,8 @@ class cem_planner():
 
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
-		return carry, (cost_batch, cost_list_batch, force, joint_pos, 
-				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, tip_pos)
+		return carry, (cost_batch, cost_list_batch, joint_pos, 
+				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, torso_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cem(
@@ -738,7 +629,6 @@ class cem_planner():
 		init_pos, 
 		init_vel, 
 		init_acc,
-		init_force,
 		lamda_init,
 		s_init,
 		xi_samples,
@@ -746,30 +636,26 @@ class cem_planner():
 		):
 
 
-		force_init = jnp.tile(init_force, (self.num_batch, 1))
+		pos_init = jnp.tile(init_pos, (self.num_batch, 1))
 
-		state_term = force_init	
+		state_term = pos_init	
 		
 		key, subkey = jax.random.split(self.key)
 
-		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_force, cost_weights, current_mjx_data)
+		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_vel, cost_weights, current_mjx_data)
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
-		cost_batch, cost_list_batch, force, joint_pos, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_filtered ,tip_pos = out
+		
+		(cost_batch, cost_list_batch, 
+         joint_pos_batch, avg_res_primal, 
+		 avg_res_fixed, primal_residuals, fixed_point_residuals, 
+		 xi_filtered ,torso_pos_batch) = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
-		best_forces = force[-1][idx_min].reshape((self.num_dof, self.num)).T
 
-		print("joint_pos", joint_pos.shape)
-        
-
-		#This has 2 as first dimension because there are 2 joints
-		best_traj = joint_pos[-1][idx_min]  #.reshape((2, self.num)).T
-
-		print("best_traj", best_traj.shape)
-
+		best_traj = joint_pos_batch[-1][idx_min] 
 
 		best_cost_list = cost_list_batch[-1][idx_min]
 
@@ -783,24 +669,22 @@ class cem_planner():
 		xi_cov = carry[1]
 
 
-		tip_pos_planned = tip_pos[-1][idx_min]
+		torso_pos_planned = torso_pos_batch[-1][idx_min]
 
 	    
 		return (
 			best_cost_cem,
 			best_cost_list_cem,
-			best_forces,
 			best_traj,
 			xi_mean,
 			xi_cov,
 			xi_filtered,
-			force,
-			joint_pos,
+			joint_pos_batch,
 			avg_res_primal,
 			avg_res_fixed,
 			primal_residuals,
 			fixed_point_residuals,
 			idx_min,
-			tip_pos_planned,
-			tip_pos
+			torso_pos_planned,
+			torso_pos_batch
 		)

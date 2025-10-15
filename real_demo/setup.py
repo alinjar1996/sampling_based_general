@@ -15,7 +15,7 @@ data_files=[
         (os.path.join('share', 'gripper_srv', 'srv'), glob('srv/*.msg')),
     ]
 
-folders = ['cart_pole_mjx', 'mj_planner', 'data', 'ik_based_planner', 'collision_free_ik', 'sampling_based_planner']
+folders = ['go1_mjx', 'mj_planner', 'data', 'ik_based_planner', 'collision_free_ik', 'sampling_based_planner']
 
 for folder in folders:
     for dirpath, dirnames, filenames in os.walk(folder):

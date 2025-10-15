@@ -117,9 +117,9 @@ class run_cem_planner:
         # current_mjx_data = sim_data
 
         # CEM computation
-        cost_cem, cost_list_cem, force_horizon, joint_pos_horizon, \
-        xi_mean, xi_cov, force_filtered_cem, force_all, joint_pos_horizon_all, avg_primal_res, avg_fixed_res, \
-        primal_res, fixed_res, idx_min, tip_trace_planned, tip_trace_all  = self.cem.compute_cem(
+        cost_cem, cost_list_cem, joint_pos_horizon, \
+        xi_mean, xi_cov, xi_filtered, joint_pos_horizon_all, avg_primal_res, avg_fixed_res, \
+        primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
             self.xi_cov,
@@ -139,16 +139,13 @@ class run_cem_planner:
         # force_cem = np.mean(force_horizon[1:int(0.8*self.num_steps)], axis=0)
 
         # force = force_cem
-        force = force_horizon
+        # force = force_horizon
         
-        return (force, cost_cem, 
+        return (cost_cem, 
                 cost_list_cem, 
-                force_horizon, 
                 joint_pos_horizon,
                 joint_pos_horizon_all, 
-                tip_trace_planned, 
-                tip_trace_all, 
-                force_all, 
-                force_filtered_cem,
+                torso_trace_planned, 
+                torso_trace_all, 
                 primal_res,
                 fixed_res)

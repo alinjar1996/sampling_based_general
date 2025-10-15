@@ -84,8 +84,7 @@ class Planner(Node):
             self.data_buffers = {
                 'batch_size': [num_batch],
                 'horizon': [num_steps],
-                'slider_pos': [],           # Joint positions over time
-                'force': [],          # force commands over time  
+                'joint_pos_action': [],
                 'cost_cem': [],        # CEM cost over time
                 'cost_theta_cem': [],      # Theta cost component
                 'cost_velocity_cem': [],      # Velocity cost component
@@ -94,11 +93,8 @@ class Planner(Node):
                 'total_time': [],       # Timestamps
                 'joint_pos_horizon': [],   # Planned joint pos horizon 
                 'joint_pos_horizon_all': [],   # Planned joint pos horizon 
-                'force_horizon': [], # Planned force horizon
-                'force_samples': [], # force sample
-                'force_filtered': [], # force filtered
-                'tip_trace_planned': [], # best tip_trace
-                'tip_trace_all': [], # tip_trace_all_samples
+                'torso_trace_planned': [], # best torso_trace
+                'torso_trace_all': [], # torso_trace_all_samples
                 'primal_res': [], # Primal residual
                 'fixed_res': [], # Fixed point residual
             }
@@ -114,8 +110,7 @@ class Planner(Node):
             'control': 0.001
         }
 
-        self.force = np.zeros(self.num_dof)
-        self.force_array = np.zeros(self.num_dof*num_steps)
+        self.joint_pos_array = np.zeros(self.num_dof*num_steps)
 
         
         
@@ -211,12 +206,12 @@ class Planner(Node):
         self.timer = self.create_timer(self.timestep, self.control_loop)
 
 
-    def render_trace(self, viewer_, tip_trace_positions):
+    def render_trace(self, viewer_, torso_trace_positions):
         """Render the end-effector trajectory trace in the viewer."""
         # Clear any existing overlay geoms
         viewer_.user_scn.ngeom = 0
 
-        for i, pos in enumerate(tip_trace_positions):
+        for i, pos in enumerate(torso_trace_positions):
             geom_id = viewer_.user_scn.ngeom
             viewer_.user_scn.ngeom += 1
 
@@ -225,7 +220,7 @@ class Planner(Node):
             mat = np.eye(3, dtype=np.float64).flatten()
 
             # Interpolation factor [0..1]
-            t = i / (len(tip_trace_positions) - 1 + 1e-9)
+            t = i / (len(torso_trace_positions) - 1 + 1e-9)
 
             # Fade from solid red → transparent red
             start_color = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32)   #  red
@@ -252,26 +247,22 @@ class Planner(Node):
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
-        self.force = np.mean(self.force_array[1:int(0.2*self.num_steps)], axis = 0)
-        current_force = self.force
+        self.joint_pos = np.mean(self.joint_pos_array[1:int(0.2*self.num_steps)], axis = 0)
+        current_pos_action = self.joint_pos
 
-        print("self.force", self.force)
+        print("self.joint_pos", self.joint_pos)
 
         
         
         # Compute control
-        (self.force_array, 
-          cost_cem, 
+        (cost_cem, 
           cost_list_cem, 
-          force_horizon, 
-          joint_pos_horizon, 
+          self.joint_pos_array, 
           joint_pos_horizon_all,
-          tip_trace_planned,
-          tip_trace_all,
-          force_samples,
-          force_filtered,
+          torso_trace_planned,
+          torso_trace_all,
           primal_res,
-          fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel, current_force)
+          fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel)
         
         #cost_theta_cem, cost_velocity_cem, cost_centering_cem ,cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1], cost_list_cem[:, 2], cost_list_cem[:, 3]
         cost_theta_cem, \
@@ -285,32 +276,27 @@ class Planner(Node):
         if self.record_data_:
             current_time = time.time() - self.traj_time_start
             
-            self.data_buffers['slider_pos'].append(current_pos.copy())
-            # self.data_buffers['force'].append(self.force.copy())
-            self.data_buffers['force'].append(np.atleast_1d(np.squeeze(self.force.copy())))
+            self.data_buffers['joint_pos_action'].append(current_pos_action.copy())
             self.data_buffers['cost_cem'].append(cost_cem.copy())
             self.data_buffers['cost_theta_cem'].append(cost_theta_cem)
             self.data_buffers['cost_velocity_cem'].append(cost_velocity_cem)
             self.data_buffers['cost_centering_cem'].append(cost_centering_cem)
             self.data_buffers['cost_control_cem'].append(cost_control_cem)
             self.data_buffers['total_time'].append(current_time)
-            self.data_buffers['joint_pos_horizon'].append(joint_pos_horizon.copy())
+            self.data_buffers['joint_pos_horizon'].append(self.joint_pos_array.copy())
             self.data_buffers['joint_pos_horizon_all'].append(joint_pos_horizon_all.copy())
-            self.data_buffers['force_horizon'].append(force_horizon.copy())
-            self.data_buffers['force_samples'].append(force_samples.copy())
-            self.data_buffers['force_filtered'].append(force_filtered.copy())
-            self.data_buffers['tip_trace_planned'].append(tip_trace_planned.copy())
-            self.data_buffers['tip_trace_all'].append(tip_trace_all.copy())
+            self.data_buffers['torso_trace_planned'].append(torso_trace_planned.copy())
+            self.data_buffers['torso_trace_all'].append(torso_trace_all.copy())
             self.data_buffers['primal_res'].append(primal_res.copy())
             self.data_buffers['fixed_res'].append(fixed_res.copy())
         
         
-        # self.data.ctrl[self.joint_ctrl_indices] = self.force
 
         # self.data.ctrl[:] = np.zeros(len(self.joint_mask_vel))
-        # self.data.ctrl[self.joint_mask_vel] = self.force
 
-        self.data.ctrl[self.actuator_ctrl_indices] = self.force
+
+
+        self.data.qpos[self.joint_mask_pos] = self.joint_pos
         
 
         # print("self.data.qvel", self.data.qvel)
@@ -326,7 +312,7 @@ class Planner(Node):
         # Print sensor data
         self.print_sensor_data()
 
-        self.render_trace(self.viewer, tip_trace_planned[:,:3])
+        self.render_trace(self.viewer, torso_trace_planned[:,:3])
 
 
         # Update viewer
@@ -349,7 +335,7 @@ class Planner(Node):
 
     def save_data(self):
         """Save all recorded data to file"""
-        if not self.record_data_ or not self.data_buffers['slider_pos']:
+        if not self.record_data_ or not self.data_buffers['joint_pos']:
             print("No data to save or recording disabled")
             return
             
@@ -357,8 +343,7 @@ class Planner(Node):
         save_dict = {
             'batch_size': np.array(self.data_buffers['batch_size']),
             'horizon': np.array(self.data_buffers['horizon']),
-            'slider_pos': np.array(self.data_buffers['slider_pos']),
-            'force': np.array(self.data_buffers['force']),
+            'joint_pos_action': np.array(self.data_buffers['joint_pos_action']),
             'cost_cem': np.array(self.data_buffers['cost_cem']),
             'cost_theta_cem': np.array(self.data_buffers['cost_theta_cem']),
             'cost_velocity_cem': np.array(self.data_buffers['cost_velocity_cem']),
@@ -367,11 +352,8 @@ class Planner(Node):
             'total_time': np.array(self.data_buffers['total_time']),
             'joint_pos_horizon': np.array(self.data_buffers['joint_pos_horizon']),
             'joint_pos_horizon_all': np.array(self.data_buffers['joint_pos_horizon_all']),
-            'force_horizon': np.array(self.data_buffers['force_horizon']),
-            'force_samples': np.array(self.data_buffers['force_samples']),
-            'force_filtered': np.array(self.data_buffers['force_filtered']),
-            'tip_trace_planned': np.array(self.data_buffers['tip_trace_planned']),
-            'tip_trace_all': np.array(self.data_buffers['tip_trace_all']),
+            'torso_trace_planned': np.array(self.data_buffers['torso_trace_planned']),
+            'torso_trace_all': np.array(self.data_buffers['torso_trace_all']),
             'primal_res': np.array(self.data_buffers['primal_res']),
             'fixed_res': np.array(self.data_buffers['fixed_res']),
         }
@@ -382,7 +364,7 @@ class Planner(Node):
         # Save data
         np.savez(self.pathes["trajectory"], **save_dict)
         print(f"Data saved to {self.pathes['trajectory']}")
-        print(f"Recorded {len(self.data_buffers['slider_pos'])} time steps")
+        print(f"Recorded {len(self.data_buffers['joint_pos'])} time steps")
     
     def close_connection(self):
         if self.use_hardware:
@@ -407,7 +389,6 @@ class Planner(Node):
     #         success=np.array(self.data_buffers['success']),
     #         reason=np.array(self.data_buffers['reason']),
     #         target_0=np.array(self.data_buffers['target_0']),
-    #         theta=np.array(self.data_buffers['slider_pos'], dtype=object),
     #         thetadot=np.array(self.data_buffers['thetadot'], dtype=object),
     #         cost_r=np.array(self.data_buffers['cost_r'], dtype=object),
     #         cost_eef_to_obj=np.array(self.data_buffers['cost_eef_to_obj'], dtype=object),
