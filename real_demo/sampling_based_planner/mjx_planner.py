@@ -752,7 +752,7 @@ class cem_planner():
 		
 		key, subkey = jax.random.split(self.key)
 
-		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_force, cost_weights, current_mjx_data)
+		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples, init_pos, init_vel, cost_weights, current_mjx_data)
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
