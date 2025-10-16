@@ -48,7 +48,7 @@ class cem_planner():
 		self.nvar_single = jnp.shape(self.P_jax)[1]
 		self.nvar = self.nvar_single*self.num_dof 
   
-		self.rho_ineq = 20.0
+		self.rho_ineq = 5.0
 		self.rho_projection = 1.0
 
 		self.A_projection = jnp.identity(self.nvar)
@@ -117,7 +117,7 @@ class cem_planner():
 		self.alpha_mean = 0.6
 		self.alpha_cov = 0.6
 
-		self.lamda = 10
+		self.lamda = 0.1
 		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
 

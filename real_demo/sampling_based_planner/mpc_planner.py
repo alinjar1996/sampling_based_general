@@ -119,9 +119,23 @@ class run_cem_planner:
         # current_mjx_data = mujoco.mjx.put_data(self.model, self.data)
         self.mjx_model = mujoco.mjx.put_model(self.model)
         current_mjx_data = mujoco.mjx.put_data(self.model, sim_data)
-        current_mjx_data.replace(qpos = current_pos, qvel = current_vel)
+
+		# ctrl = mjx_data.ctrl.at[jnp.array(self.actuator_ctrl_indices)].set(torque_single)
+
+        current_pos_ = current_mjx_data.qpos.at[self.cem.joint_mask_pos].set(current_pos)
+        current_vel_ = current_mjx_data.qvel.at[self.cem.joint_mask_vel].set(current_vel)
+        current_torque_ = current_mjx_data.ctrl.at[jnp.array(self.cem.actuator_ctrl_indices)].set(current_torque)
+
+
+
+        current_mjx_data = current_mjx_data.replace(qpos = current_pos_, qvel = current_vel_, ctrl=current_torque_)
         # current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data )
         # current_mjx_data = sim_data
+
+        
+
+        # print("current_pos", current_pos.shape)
+        # print("current_vel", current_vel.shape)
 
         # CEM computation
         cost, best_cost_list, torque_horizon, theta_horizon, \
