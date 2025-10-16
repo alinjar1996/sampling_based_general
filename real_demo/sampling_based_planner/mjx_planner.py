@@ -50,15 +50,14 @@ class cem_planner():
 		self.tot_time = tot_time
 		tot_time_copy = tot_time.reshape(self.num, 1)
      
-		# self.P = jnp.identity(self.num) # Velocity mapping 
-		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # Accelaration mapping
-		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # Jerk mapping
-		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
+		self.P = jnp.identity(self.num) # Velocity mapping 
+		self.Pdot = jnp.diff(self.P, axis=0)/self.t # Accelaration mapping
+		self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # Jerk mapping
+		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
 		
-		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(self.num-1, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
-		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
-		self.Pint = jnp.zeros_like(self.P) 
+		# self.Pint = jnp.zeros_like(self.P) 
 	
 		self.P_jax, self.Pdot_jax, self.Pddot_jax = jnp.asarray(self.P), jnp.asarray(self.Pdot), jnp.asarray(self.Pddot)
 		self.Pint_jax = jnp.asarray(self.Pint)
@@ -784,9 +783,9 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
+		torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		torque = jnp.dot(self.A_torque, xi_samples.T).T
+		# torque_raw = jnp.dot(self.A_torque, xi_samples.T).T
 
 		# jax.debug.print("xi_samples {}", jnp.shape(xi_samples))
 		# jax.debug.print("torque {}", jnp.shape(torque))
@@ -803,7 +802,7 @@ class cem_planner():
 
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
-		return carry, (cost_batch, cost_list_batch, torque, theta, 
+		return carry, (cost_batch, cost_list_batch, torque, theta, xi_samples,
 				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, tip_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -831,7 +830,7 @@ class cem_planner():
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
-		cost_batch, cost_list_batch, torque, theta, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_filtered ,tip_pos = out
+		cost_batch, cost_list_batch, torque, theta, xi_samples_all, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_filtered ,tip_pos = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
@@ -860,6 +859,7 @@ class cem_planner():
 			best_traj,
 			xi_mean,
 			xi_cov,
+			xi_samples_all,
 			xi_filtered,
 			torque,
 			theta,

@@ -99,6 +99,7 @@ class Planner(Node):
                 'tip_trace_all': [], # tip_trace_all_samples
                 'primal_res': [], # Primal residual
                 'fixed_res': [], # Fixed point residual
+                'xi_samples': [], # xi_samples
             }
             
 
@@ -267,7 +268,8 @@ class Planner(Node):
           torque_samples,
           torque_filtered,
           primal_res,
-          fixed_res) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
+          fixed_res,
+          xi_samples) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
         
         # cost_theta_cem, cost_control_cem = cost_list_cem
         cost_theta_cem, cost_thetadot_cem, cost_control_cem = cost_list_cem[:, 0], cost_list_cem[:, 1], cost_list_cem[:, 2]
@@ -293,6 +295,8 @@ class Planner(Node):
             self.data_buffers['tip_trace_all'].append(tip_trace_all.copy())
             self.data_buffers['primal_res'].append(primal_res.copy())
             self.data_buffers['fixed_res'].append(fixed_res.copy())
+            self.data_buffers['xi_samples'].append(xi_samples.copy())
+
         
         
         # self.data.ctrl[self.joint_ctrl_indices] = self.torque
@@ -361,6 +365,7 @@ class Planner(Node):
             'tip_trace_all': np.array(self.data_buffers['tip_trace_all']),
             'primal_res': np.array(self.data_buffers['primal_res']),
             'fixed_res': np.array(self.data_buffers['fixed_res']),
+            'xi_samples': np.array(self.data_buffers['xi_samples']),
         }
         
         # Create directory if it doesn't exist

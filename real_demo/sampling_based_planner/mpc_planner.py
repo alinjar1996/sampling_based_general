@@ -118,7 +118,7 @@ class run_cem_planner:
 
         # CEM computation
         cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
-        xi_mean, xi_cov, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
+        xi_mean, xi_cov, xi_samples, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, tip_trace_planned, tip_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
@@ -143,11 +143,12 @@ class run_cem_planner:
         
         return (torque, cost_cem, 
                 cost_list_cem, 
-                torque_horizon, 
+                torque_horizon,
                 theta_horizon, 
                 tip_trace_planned, 
                 tip_trace_all, 
                 torque_all, 
                 torque_filtered_cem,
                 primal_res,
-                fixed_res)
+                fixed_res,
+                xi_samples)
