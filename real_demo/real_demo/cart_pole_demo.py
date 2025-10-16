@@ -253,7 +253,7 @@ class Planner(Node):
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
-        self.force = np.mean(self.force_array[1:int(0.2*self.num_steps)], axis = 0)
+        self.force = np.mean(self.force_array[1:int(0.06*self.num_steps)], axis = 0)
         current_force = self.force
 
         print("self.force", self.force)
