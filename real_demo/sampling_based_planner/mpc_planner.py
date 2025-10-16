@@ -19,7 +19,7 @@ class run_cem_planner:
     def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
                  maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=None,
                  inference=False, max_joint_intforce=0.0, max_joint_force=1.0, 
-                 max_joint_dforce=2.0, max_joint_ddforce=4.0,
+                 max_joint_dforce=10.0, max_joint_ddforce=20.0,
                  device='cuda', cost_weights=None):
         
         # Initialize parameters
