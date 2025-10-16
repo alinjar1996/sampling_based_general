@@ -705,9 +705,9 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		# force = jnp.dot(self.A_force, xi_filtered.T).T
+		force = jnp.dot(self.A_force, xi_filtered.T).T
 		
-		force = jnp.dot(self.A_force, xi_samples.T).T
+		# force = jnp.dot(self.A_force, xi_samples.T).T
 
 		# jax.debug.print("xi_samples {}", jnp.shape(xi_samples))
 		# jax.debug.print("force {}", jnp.shape(force))
