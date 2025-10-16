@@ -118,7 +118,7 @@ class run_cem_planner:
 
         # CEM computation
         cost_cem, cost_list_cem, force_horizon, joint_pos_horizon, \
-        xi_mean, xi_cov, force_filtered_cem, force_all, joint_pos_horizon_all, avg_primal_res, avg_fixed_res, \
+        xi_mean, xi_cov, xi_samples, force_filtered_cem, force_all, joint_pos_horizon_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, tip_trace_planned, tip_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
@@ -151,4 +151,5 @@ class run_cem_planner:
                 force_all, 
                 force_filtered_cem,
                 primal_res,
-                fixed_res)
+                fixed_res,
+                xi_samples)

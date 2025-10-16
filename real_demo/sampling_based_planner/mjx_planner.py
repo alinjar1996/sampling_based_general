@@ -692,7 +692,7 @@ class cem_planner():
 																 init_pos)
 		
 
-		xi_filtered = jnp.clip(xi_filtered, a_min=-1.0, a_max=1.0)
+		# xi_filtered = jnp.clip(xi_filtered, a_min=-1.0, a_max=1.0)
 		
 
 		# xi_filtered = xi_filtered.transpose(1, 0, 2).reshape(self.num_batch, -1) # shape: (B, num*num_dof)
@@ -728,7 +728,7 @@ class cem_planner():
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
 		return carry, (cost_batch, cost_list_batch, force, joint_pos, 
-				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, tip_pos)
+				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_samples, xi_filtered, tip_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cem(
@@ -755,19 +755,19 @@ class cem_planner():
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
-		cost_batch, cost_list_batch, force, joint_pos, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_filtered ,tip_pos = out
+		cost_batch, cost_list_batch, force, joint_pos, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, xi_samples_all, xi_filtered ,tip_pos = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
 		best_forces = force[-1][idx_min].reshape((self.num_dof, self.num)).T
 
-		print("joint_pos", joint_pos.shape)
+		# print("joint_pos", joint_pos.shape)
         
 
 		#This has 2 as first dimension because there are 2 joints
 		best_traj = joint_pos[-1][idx_min]  #.reshape((2, self.num)).T
 
-		print("best_traj", best_traj.shape)
+		# print("best_traj", best_traj.shape)
 
 
 		best_cost_list = cost_list_batch[-1][idx_min]
@@ -792,6 +792,7 @@ class cem_planner():
 			best_traj,
 			xi_mean,
 			xi_cov,
+			xi_samples_all, 
 			xi_filtered,
 			force,
 			joint_pos,
