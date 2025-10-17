@@ -1,4 +1,5 @@
 import os
+import sys
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -14,6 +15,17 @@ import mujoco
 import mujoco.mjx as mjx 
 import jax
 import jax.numpy as jnp
+
+# Get the folder containing this script
+current_dir = os.path.dirname(os.path.abspath(__file__))  # if in a script
+# current_dir = os.getcwd()  # if in Jupyter notebook
+
+# Add parent folder to sys.path
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+from math_utils.bernstein_coeff_ordern_arbitinterval import bernstein_coeff_ordern_new
 
 
 class cem_planner():
@@ -38,10 +50,15 @@ class cem_planner():
 		self.tot_time = tot_time
 		tot_time_copy = tot_time.reshape(self.num, 1)
 
-		self.P = jnp.identity(self.num) # Velocity mapping 
-		self.Pdot = jnp.diff(self.P, axis=0)/self.t # Accelaration mapping
-		self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # Jerk mapping
-		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
+		# self.P = jnp.identity(self.num) # Torque mapping 
+		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
+		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
+		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
+		
+		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+
+		self.Pint = jnp.zeros_like(self.P) 
+
 		self.P_jax, self.Pdot_jax, self.Pddot_jax = jnp.asarray(self.P), jnp.asarray(self.Pdot), jnp.asarray(self.Pddot)
 		self.Pint_jax = jnp.asarray(self.Pint)
 
@@ -97,10 +114,10 @@ class cem_planner():
 		# self.inttorque_max = max_joint_inttorque		
 		    
     	# Calculating number of Inequality constraints
-		self.num_torque = self.num
-		self.num_dtorque = self.num - 1
-		self.num_ddtorque = self.num - 2
-		self.num_inttorque = self.num
+		self.num_torque   = self.P.shape[0]       # number of time samples for torque 
+		self.num_dtorque  = self.Pdot.shape[0]    # number of samples for rate of change)
+		self.num_ddtorque = self.Pddot.shape[0]   # number of samples for double rate of change
+		self.num_inttorque = self.Pint.shape[0]   # number of samples for integrated torque
 
 		self.num_torque_constraints = 2 * self.num_torque * num_dof
 		self.num_dtorque_constraints = 2 * self.num_dtorque * num_dof
@@ -670,7 +687,7 @@ class cem_planner():
 		mean_control = (1-self.alpha_mean)*mean_control_prev + self.alpha_mean*(jnp.sum( (xi_ellite * w[:,jnp.newaxis]) , axis= 0)/ sum_w)
 		diffs = (xi_ellite - mean_control)
 		prod_result = self.vec_product(diffs, w)
-		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.5*jnp.identity(self.nvar)
+		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.1*jnp.identity(self.nvar)
 		cov_control = self.repair_cov(cov_control)
 		return mean_control, cov_control
 	
@@ -728,8 +745,8 @@ class cem_planner():
 
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
-		return carry, (cost_batch, cost_list_batch, torque, theta, 
-				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, torso_pos)
+		return carry, (cost_batch, cost_list_batch, torque, theta, xi_samples,
+				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, torso_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cem(
@@ -756,7 +773,10 @@ class cem_planner():
 		scan_over = jnp.array([0]*self.maxiter_cem)
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
-		cost_batch, cost_list_batch, torque, theta, avg_res_primal, avg_res_fixed, primal_residuals, fixed_point_residuals, torso_pos = out
+
+		(cost_batch, cost_list_batch, torque, theta, 
+         xi_samples_all, avg_res_primal, avg_res_fixed, 
+		 primal_residuals, fixed_point_residuals, xi_filtered, torso_pos) = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
@@ -767,6 +787,10 @@ class cem_planner():
 
 		best_cost = cost_batch[-1][idx_min]
 
+		best_cost_list_cem = cost_list_batch[:, idx_min]
+
+		best_cost_cem = cost_batch[:, idx_min]
+
 		xi_mean = carry[0]
 		xi_cov = carry[1]
 
@@ -775,12 +799,14 @@ class cem_planner():
 
 	    
 		return (
-			best_cost,
-			best_cost_list,
+			best_cost_cem,
+			best_cost_list_cem,
 			best_torques,
 			best_traj,
 			xi_mean,
 			xi_cov,
+			xi_samples_all,
+			xi_filtered,
 			torque,
 			theta,
 			avg_res_primal,

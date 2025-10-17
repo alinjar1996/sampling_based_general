@@ -35,13 +35,8 @@ class Planner(Node):
         self.declare_parameter('num_steps', 15)
         self.declare_parameter('maxiter_cem', 1)
         self.declare_parameter('maxiter_projection', 5)
-        self.declare_parameter('w_pos', 3.0)
-        self.declare_parameter('w_rot', 0.5)
-        self.declare_parameter('w_col', 500.0)
         self.declare_parameter('num_elite', 0.05)
         self.declare_parameter('timestep', 0.1)
-        self.declare_parameter('position_threshold', 0.06)
-        self.declare_parameter('rotation_threshold', 0.1)
 
         # Demo params
         self.use_hardware = self.get_parameter('use_hardware').get_parameter_value().bool_value
@@ -56,46 +51,46 @@ class Planner(Node):
         num_steps = self.get_parameter('num_steps').get_parameter_value().integer_value
         maxiter_cem = self.get_parameter('maxiter_cem').get_parameter_value().integer_value
         maxiter_projection = self.get_parameter('maxiter_projection').get_parameter_value().integer_value
-        w_pos = self.get_parameter('w_pos').get_parameter_value().double_value
-        w_rot = self.get_parameter('w_rot').get_parameter_value().double_value
-        w_col = self.get_parameter('w_col').get_parameter_value().double_value
         num_elite = self.get_parameter('num_elite').get_parameter_value().double_value
         self.timestep = self.get_parameter('timestep').get_parameter_value().double_value
-        position_threshold = self.get_parameter('position_threshold').get_parameter_value().double_value
-        rotation_threshold = self.get_parameter('rotation_threshold').get_parameter_value().double_value
-        # self.num_targets = 21
+
 
         
 
-        # if self.record_data_:
-        #     self.pathes = {
-        #         "setup": os.path.join(PACKAGE_DIR, 'data', 'planner', 'setup', f'setup_{self.idx}.npz'),
-        #         "trajectory": os.path.join(PACKAGE_DIR, 'data', 'planner', 'trajectory', f'traj_{self.idx}.npz'),
-        #         # "benchmark": os.path.join(PACKAGE_DIR, 'data', 'planner', 'benchmark', f'bench_{num_batch}_{num_steps}_walker{self.idx}.npz'),
-        #     }
-        #     self.data_buffers = {
-        #         'batch_size': [num_batch],
-        #         'horizon': [num_steps],
+        self.pathes = {
+        "setup": os.path.join(
+            PACKAGE_DIR, "data", "planner", "setup",
+            f"setup_walker_{num_batch}_{num_steps}_{maxiter_cem}_"
+            f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
+        ),
+        "trajectory": os.path.join(
+            PACKAGE_DIR, "data", "planner", "trajectory",
+            f"traj_walker_{num_batch}_{num_steps}_{maxiter_cem}_"
+            f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
+        )}
 
-        #         # 'target_0': [0]*self.num_targets,
-        #         # 'total_time_s': [0]*self.num_targets,
-        #         # 'success': [0]*self.num_targets,
-        #         # 'reason': [0]*self.num_targets,
-
-        #         # 'step_time_ms': [[] for _ in range(self.num_targets)],
-        #         # 'theta': [[] for _ in range(self.num_targets)],
-        #         # 'thetadot': [[] for _ in range(self.num_targets)],
-
-        #         # 'cost_r': [[] for _ in range(self.num_targets)],
-        #         # 'cost_eef_to_obj': [[] for _ in range(self.num_targets)],
-        #         # 'cost_obj_to_targ': [[] for _ in range(self.num_targets)],
-        #         # 'cost_dist': [[] for _ in range(self.num_targets)],
-        #         # 'cost_zy': [[] for _ in range(self.num_targets)],
-        #     }
-
-
-
-        self.target_idx = 0
+        self.data_buffers = {
+                'batch_size': [num_batch],
+                'horizon': [num_steps],
+                'theta': [],           # Joint positions over time
+                'torque': [],          # Torque commands over time  
+                'cost_cem': [],        # CEM cost over time
+                'cost_height_cem': [],      # Theta cost component
+                'cost_velocity_cem': [],      # Velocity cost component
+                'cost_orientation_cem': [],      # Orientation cost component
+                'cost_control_cem': [],    # Control cost component
+                'total_time': [],       # Timestamps
+                'theta_horizon': [],   # Planned theta horizon 
+                'torque_horizon': [], # Planned torque horizon
+                'torque_samples': [], # torque sample
+                'torque_filtered': [], # torque filtered
+                'torso_trace_planned': [], # best torso_trace
+                'torso_trace_all': [], # torso_trace_all_samples
+                'primal_res': [], # Primal residual
+                'fixed_res': [], # Fixed point residual
+                'xi_samples': [], # xi_samples
+            }
+            
 
         cost_weights = {
             'height': 10.0,
@@ -106,8 +101,8 @@ class Planner(Node):
 
 
         self.torque = np.zeros(self.num_dof)
+        self.torque_array = np.zeros((num_steps, self.num_dof))
 
-        
         
         # Initialize MuJoCo model and data
         model_path = os.path.join(get_package_share_directory('real_demo'), 'walker_mjx', 'scene.xml')
@@ -128,6 +123,9 @@ class Planner(Node):
         print(f"Sensor IDs - Position: {self.torso_position_sensor}, "
               f"Velocity: {self.torso_velocity_sensor}, "
               f"Z-axis: {self.torso_zaxis_sensor}")
+        
+        robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
+                         'left_hip', 'left_knee', 'left_ankle'])
   
         joint_names_pos = list()
         joint_names_vel = list()
@@ -149,8 +147,7 @@ class Planner(Node):
         # robot_joints = np.array(['shoulder_pan_joint_1', 'shoulder_lift_joint_1', 'elbow_joint_1', 'wrist_1_joint_1', 'wrist_2_joint_1', 'wrist_3_joint_1',
         #                         'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
         
-        robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
-                         'left_hip', 'left_knee', 'left_ankle'])
+
                          
         self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
         self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
@@ -197,8 +194,6 @@ class Planner(Node):
             maxiter_projection=maxiter_projection,
             num_elite=num_elite,
             timestep=self.timestep,
-            position_threshold=position_threshold,
-            rotation_threshold=rotation_threshold,
             cost_weights=cost_weights
         )
         
@@ -222,27 +217,6 @@ class Planner(Node):
         """Render the end-effector trajectory trace in the viewer."""
         # Clear any existing overlay geoms
         viewer_.user_scn.ngeom = 0
-
-        # for pos in torso_trace_positions:   # each pos is already [x,y,z]
-        #     # Create a new geom in the user scene
-        #     geom_id = viewer_.user_scn.ngeom
-        #     viewer_.user_scn.ngeom += 1
-
-        #     # Ensure correct numpy types for MuJoCo
-        #     size = np.array([0.02, 0.02, 0.02], dtype=np.float64)
-        #     pos = np.array(pos, dtype=np.float64).reshape(3)
-        #     mat = np.eye(3, dtype=np.float64).flatten()
-        #     rgba = np.array([0.0, 0.0, 1.0, 0.5], dtype=np.float32)
-
-        #     # Initialize the geom properties
-        #     mujoco.mjv_initGeom(
-        #         viewer_.user_scn.geoms[geom_id],
-        #         mujoco.mjtGeom.mjGEOM_SPHERE,
-        #         size,
-        #         pos,
-        #         mat,
-        #         rgba
-        #     )
 
         for i, pos in enumerate(torso_trace_positions):
             geom_id = viewer_.user_scn.ngeom
@@ -274,41 +248,72 @@ class Planner(Node):
         """Main control loop running at fixed interval"""
         start_time = time.time()
 
-           
-    
+        
         # Get current state
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
+        self.torque = np.mean(self.torque_array[1:10], axis = 0)
         current_torque = self.torque
+
+        print("self.torque", self.torque)
         
         
         # Compute control
-        self.torque, cost, cost_list, thetadot_horizon, theta_horizon, torso_trace_planned = self.planner.compute_control(self.data, 
-                                                                                                                            current_pos, 
-                                                                                                                            current_vel,
-                                                                                                                            current_torque)
-        cost_height, cost_orientation, cost_velocity, cost_control = cost_list
+        (self.torque_array, 
+         cost_cem, 
+         cost_list_cem, 
+         torque_horizon, 
+         theta_horizon, 
+         torso_trace_planned,
+         torso_trace_all,
+         torque_samples,
+         torque_filtered,
+         primal_res,
+         fixed_res,
+         xi_samples) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
         
-        print("self.torque", self.torque)
+        cost_height_cem, cost_orientation_cem, cost_velocity_cem, cost_control_cem = (
+                    cost_list_cem[:, 0], 
+                    cost_list_cem[:, 1], 
+                    cost_list_cem[:, 2], 
+                    cost_list_cem[:, 3]
+                )
         
-        # self.data.ctrl[self.joint_ctrl_indices] = self.torque
+        cost_height, cost_orientation, cost_velocity, cost_control = cost_list_cem[-1]
+        
+        
 
-        # self.data.ctrl[:] = np.zeros(len(self.joint_mask_vel))
-        # self.data.ctrl[self.joint_mask_vel] = self.torque
+        # STORE THE DATA
+        if self.record_data_:
+            current_time = time.time() - self.traj_time_start
+            
+            self.data_buffers['theta'].append(current_pos.copy())
+            # self.data_buffers['torque'].append(self.torque.copy())
+            self.data_buffers['torque'].append(np.atleast_1d(np.squeeze(self.torque.copy())))
+            self.data_buffers['cost_cem'].append(cost_cem.copy())
+            self.data_buffers['cost_height_cem'].append(cost_height_cem)
+            self.data_buffers['cost_velocity_cem'].append(cost_velocity_cem)
+            self.data_buffers['cost_orientation_cem'].append(cost_orientation_cem)
+            self.data_buffers['cost_control_cem'].append(cost_control_cem)
+            self.data_buffers['total_time'].append(current_time)
+            self.data_buffers['theta_horizon'].append(theta_horizon.copy())
+            self.data_buffers['torque_horizon'].append(torque_horizon.copy())
+            self.data_buffers['torque_samples'].append(torque_samples.copy())
+            self.data_buffers['torque_filtered'].append(torque_filtered.copy())
+            self.data_buffers['torso_trace_planned'].append(torso_trace_planned.copy())
+            self.data_buffers['torso_trace_all'].append(torso_trace_all.copy())
+            self.data_buffers['primal_res'].append(primal_res.copy())
+            self.data_buffers['fixed_res'].append(fixed_res.copy())
+            self.data_buffers['xi_samples'].append(xi_samples.copy())
+
+        
+        
         self.data.ctrl[self.actuator_ctrl_indices] = self.torque
         
 
-        # print("self.data.qvel", self.data.qvel)
-
         mujoco.mj_step(self.model, self.data)
         
-
-        
-        # if self.data.ncon > self.model.nconmax:
-        #     self.data.ncon = self.model.nconmax
-        
-        # print("torso_trace_planned", torso_trace_planned)
 
         # Print sensor data
         self.print_sensor_data()
@@ -320,10 +325,9 @@ class Planner(Node):
         self.viewer.sync()
         
         # Print debug info
-        print(f'\n| Target idx: {self.target_idx} '
-              f'\n| Total time: {"%.0f"%(time.time() - self.traj_time_start)}s '
+        print(f'\n| Total time: {"%.0f"%(time.time() - self.traj_time_start)}s '
               f'\n| Step Time: {"%.0f"%((time.time() - start_time)*1000)}ms '
-              f'\n| Cost: {np.round(cost, 2)} '
+              f'\n| Cost: {np.round(cost_cem[-1], 2)} '
               f'\n| Cost_Height: {np.round(cost_height, 2)} ',
               f'\n| Cost_Orientation: {np.round(cost_orientation, 2)} ', 
               f'\n| Cost_Velocity: {np.round(cost_velocity, 2)} ', 
@@ -334,6 +338,42 @@ class Planner(Node):
         if time_until_next_step > 0:
             time.sleep(time_until_next_step) 
 
+    def save_data(self):
+        """Save all recorded data to file"""
+        if not self.record_data_ or not self.data_buffers['theta']:
+            print("No data to save or recording disabled")
+            return
+            
+        # Convert lists to numpy arrays for efficient storage
+        save_dict = {
+            'batch_size': np.array(self.data_buffers['batch_size']),
+            'horizon': np.array(self.data_buffers['horizon']),
+            'theta': np.array(self.data_buffers['theta']),
+            'torque': np.array(self.data_buffers['torque']),
+            'cost_cem': np.array(self.data_buffers['cost_cem']),
+            'cost_height_cem': np.array(self.data_buffers['cost_height_cem']),
+            'cost_orientation_cem': np.array(self.data_buffers['cost_orientation_cem']),
+            'cost_velocity_cem': np.array(self.data_buffers['cost_velocity_cem']),
+            'cost_control_cem': np.array(self.data_buffers['cost_control_cem']),
+            'total_time': np.array(self.data_buffers['total_time']),
+            'theta_horizon': np.array(self.data_buffers['theta_horizon']),
+            'torque_horizon': np.array(self.data_buffers['torque_horizon']),
+            'torque_samples': np.array(self.data_buffers['torque_samples']),
+            'torque_filtered': np.array(self.data_buffers['torque_filtered']),
+            'torso_trace_planned': np.array(self.data_buffers['torso_trace_planned']),
+            'torso_trace_all': np.array(self.data_buffers['torso_trace_all']),
+            'primal_res': np.array(self.data_buffers['primal_res']),
+            'fixed_res': np.array(self.data_buffers['fixed_res']),
+            'xi_samples': np.array(self.data_buffers['xi_samples']),
+        }
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.pathes["trajectory"]), exist_ok=True)
+        
+        # Save data
+        np.savez(self.pathes["trajectory"], **save_dict)
+        print(f"Data saved to {self.pathes['trajectory']}")
+        print(f"Recorded {len(self.data_buffers['theta'])} time steps")
     
     def close_connection(self):
         if self.use_hardware:
@@ -346,28 +386,6 @@ class Planner(Node):
                 self.rtde_c_1.speedStop()
                 self.rtde_c_1.disconnect()
             print("Disconnected from UR5e Robot", flush=True)
-
-         
-
-    #     np.savez(
-    #         self.pathes['benchmark'],
-    #         batch_size=np.array(self.data_buffers['batch_size']),
-    #         horizon=np.array(self.data_buffers['horizon']),
-    #         total_time=np.array(self.data_buffers['total_time_s']),
-    #         step_time=np.array(self.data_buffers['step_time_ms'], dtype=object),
-    #         success=np.array(self.data_buffers['success']),
-    #         reason=np.array(self.data_buffers['reason']),
-    #         target_0=np.array(self.data_buffers['target_0']),
-    #         theta=np.array(self.data_buffers['theta'], dtype=object),
-    #         thetadot=np.array(self.data_buffers['thetadot'], dtype=object),
-    #         cost_r=np.array(self.data_buffers['cost_r'], dtype=object),
-    #         cost_eef_to_obj=np.array(self.data_buffers['cost_eef_to_obj'], dtype=object),
-    #         cost_obj_to_targ=np.array(self.data_buffers['cost_obj_to_targ'], dtype=object),
-    #         cost_dist=np.array(self.data_buffers['cost_dist'], dtype=object),
-    #         cost_zy=np.array(self.data_buffers['cost_zy'], dtype=object),
-    #     )
-    #     self.data_saved = True
-    #     print("Saving data...")
     
     def print_sensor_data(self):
         """Print sensor data similar to your cem_planner example"""
@@ -405,7 +423,7 @@ def main(args=None):
     finally:
         # if rclpy.ok():
         if planner.record_data_:
-            planner.record_data()
+            planner.save_data()
         planner.close_connection()
         planner.destroy_node()
         rclpy.shutdown()

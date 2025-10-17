@@ -18,9 +18,6 @@ from io import StringIO
 class run_cem_planner:
     def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
                  maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=None,
-                 position_threshold=0.06, rotation_threshold=0.1,
-                 ik_pos_thresh=0.08, ik_rot_thresh=0.1, 
-                 collision_free_ik_dt=2.0, inference=False, rnn=None,
                  max_joint_inttorque=0.0, max_joint_torque=1.0, 
                  max_joint_dtorque=1.5, max_joint_ddtorque=2.0,
                  device='cuda', cost_weights=None):
@@ -35,12 +32,6 @@ class run_cem_planner:
         self.maxiter_projection = maxiter_projection
         self.num_elite = num_elite
         self.timestep = timestep
-        # self.position_threshold = position_threshold
-        # self.rotation_threshold = rotation_threshold
-        # self.ik_pos_thresh = ik_pos_thresh if ik_pos_thresh else 1.1 * position_threshold
-        # self.ik_rot_thresh = ik_rot_thresh if ik_rot_thresh else 1.1 * rotation_threshold
-        # self.collision_free_ik_dt = collision_free_ik_dt
-        self.inference = inference
         self.device = device
 
         self.cost_weights = cost_weights
@@ -138,9 +129,9 @@ class run_cem_planner:
         # print("current_vel", current_vel.shape)
 
         # CEM computation
-        cost, best_cost_list, torque_horizon, theta_horizon, \
-        self.xi_mean, self.xi_cov, thd_all, th_all, avg_primal_res, avg_fixed_res, \
-        primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace  = self.cem.compute_cem(
+        cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
+        self.xi_mean, self.xi_cov, xi_samples, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
+        primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
             self.xi_cov,
@@ -156,9 +147,19 @@ class run_cem_planner:
 
 
         # Get mean velocity command (average middle 90% of trajectory)
-        torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
+        # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
         # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
 
-        torque = torque_cem
+        # torque = torque_cem
+        torque = torque_horizon
         
-        return torque, cost, best_cost_list, torque_horizon, theta_horizon, torso_trace_planned
+        return (torque, cost_cem, cost_list_cem, 
+                torque_horizon, 
+                theta_horizon, 
+                torso_trace_planned,
+                torso_trace_all,
+                torque_all,
+                torque_filtered_cem,
+                primal_res,
+                fixed_res,
+                xi_samples)
