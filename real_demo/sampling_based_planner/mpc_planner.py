@@ -120,6 +120,7 @@ class run_cem_planner:
 
 
         current_mjx_data = current_mjx_data.replace(qpos = current_pos_, qvel = current_vel_, ctrl=current_torque_)
+        # current_mjx_data = current_mjx_data.replace(qpos = current_pos_, qvel = current_vel_)
         # current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data )
         # current_mjx_data = sim_data
 
@@ -130,7 +131,7 @@ class run_cem_planner:
 
         # CEM computation
         cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
-        xi_mean, xi_cov, xi_samples, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
+        self.xi_mean, self.xi_cov, xi_samples, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,

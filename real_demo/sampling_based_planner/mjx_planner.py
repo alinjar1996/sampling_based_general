@@ -687,7 +687,7 @@ class cem_planner():
 		mean_control = (1-self.alpha_mean)*mean_control_prev + self.alpha_mean*(jnp.sum( (xi_ellite * w[:,jnp.newaxis]) , axis= 0)/ sum_w)
 		diffs = (xi_ellite - mean_control)
 		prod_result = self.vec_product(diffs, w)
-		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.1*jnp.identity(self.nvar)
+		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.2*jnp.identity(self.nvar)
 		cov_control = self.repair_cov(cov_control)
 		return mean_control, cov_control
 	
