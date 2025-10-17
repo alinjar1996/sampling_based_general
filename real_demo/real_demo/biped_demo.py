@@ -283,6 +283,12 @@ class Planner(Node):
         
         cost_height, cost_orientation, cost_velocity, cost_control = cost_list_cem[-1]
         
+        # Get the torso position from the sensor data
+        torso_pos = self.get_sensor_value(self.torso_position_sensor)
+
+        if self.viewer:
+            self.viewer.cam.lookat[:] = torso_pos
+        
         
 
         # STORE THE DATA
@@ -388,23 +394,25 @@ class Planner(Node):
                 self.rtde_c_1.disconnect()
             print("Disconnected from UR5e Robot", flush=True)
     
-    def print_sensor_data(self):
-        """Print sensor data similar to your cem_planner example"""
-        sensor_data = self.data.sensordata
-        
-        # Extract sensor values using sensor_adr (same approach as in compute_cost_single)
-        def get_sensor_value(sensor_id, index=0):
+
+    # Extract sensor values using sensor_adr (same approach as in compute_cost_single)
+    def get_sensor_value(self, sensor_id):
+            
+            sensor_data = self.data.sensordata
             sensor_adr = self.model.sensor_adr[sensor_id]
             sensor_dim = self.model.sensor_dim[sensor_id]
             if sensor_dim == 1:
                 return sensor_data[sensor_adr]
             else:
                 return sensor_data[sensor_adr:sensor_adr + sensor_dim]
-        
+            
+    def print_sensor_data(self):
+        """Print sensor data similar to your cem_planner example"""
+            
         # Get sensor values
-        torso_pos = get_sensor_value(self.torso_position_sensor)
-        torso_vel = get_sensor_value(self.torso_velocity_sensor) 
-        torso_zaxis = get_sensor_value(self.torso_zaxis_sensor)
+        torso_pos = self.get_sensor_value(self.torso_position_sensor)
+        torso_vel = self.get_sensor_value(self.torso_velocity_sensor) 
+        torso_zaxis = self.get_sensor_value(self.torso_zaxis_sensor)
         
         print(f"\n=== MUJOCO SENSORS ===")
         print(f"Torso Position: {torso_pos}")
