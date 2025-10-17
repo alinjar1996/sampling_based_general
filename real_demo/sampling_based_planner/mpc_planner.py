@@ -53,7 +53,7 @@ class run_cem_planner:
         )
         
         # Initialize CEM variables
-        self.cov_coeff_scalar = 0.5
+        self.cov_coeff_scalar = 1.0
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
         self.xi_cov_single = self.cov_coeff_scalar*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)
