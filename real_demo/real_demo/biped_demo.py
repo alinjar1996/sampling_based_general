@@ -95,7 +95,7 @@ class Planner(Node):
         cost_weights = {
             'height': 10.0,
 			'orientation': 3.0,
-            'velocity': 1.0,
+            'velocity': 5.0,
             'control': 0.1
         }
 
@@ -253,7 +253,8 @@ class Planner(Node):
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
-        self.torque = np.mean(self.torque_array[1:10], axis = 0)
+        # self.torque = np.mean(self.torque_array[1:int(0.5*self.planner.num_steps)], axis = 0)
+        self.torque = np.mean(self.torque_array[1:5], axis = 0)
         current_torque = self.torque
 
         print("self.torque", self.torque)
