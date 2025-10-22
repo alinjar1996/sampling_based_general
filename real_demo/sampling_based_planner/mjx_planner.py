@@ -50,14 +50,14 @@ class cem_planner():
 		self.tot_time = tot_time
 		tot_time_copy = tot_time.reshape(self.num, 1)
      
-		self.P = jnp.identity(self.num) # Velocity mapping 
-		self.Pdot = jnp.diff(self.P, axis=0)/self.t # Accelaration mapping
-		self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # Jerk mapping
-		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
+		# self.P = jnp.identity(self.num) # Velocity mapping 
+		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # Accelaration mapping
+		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # Jerk mapping
+		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Position mapping
 		
-		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
-		# self.Pint = jnp.zeros_like(self.P) 
+		self.Pint = jnp.zeros_like(self.P) 
 	
 		self.P_jax, self.Pdot_jax, self.Pddot_jax = jnp.asarray(self.P), jnp.asarray(self.Pdot), jnp.asarray(self.Pddot)
 		self.Pint_jax = jnp.asarray(self.Pint)
@@ -65,7 +65,7 @@ class cem_planner():
 		self.nvar_single = jnp.shape(self.P_jax)[1]
 		self.nvar = self.nvar_single*self.num_dof 
   
-		self.rho_ineq = 5.0
+		self.rho_ineq = 1.0
 		self.rho_projection = 1.0
 
 		self.A_projection = jnp.identity(self.nvar)
@@ -760,6 +760,7 @@ class cem_planner():
 			jnp.zeros((self.num_batch, self.num_total_constraints)),
 			-jnp.dot(self.A_control, xi_samples.T).T + self.b_control
 		)
+
 		
         # Pass all arguments as positional arguments; not keyword arguments
 		xi_filtered, primal_residuals, fixed_point_residuals = self.compute_projection(
@@ -770,7 +771,7 @@ class cem_planner():
 																 init_pos)
 		
 
-		xi_filtered = jnp.clip(xi_filtered, a_min=-1.0, a_max=1.0)
+		# xi_filtered = jnp.clip(xi_filtered, a_min=-1.0, a_max=1.0)
 		
 
 		# xi_filtered = xi_filtered.transpose(1, 0, 2).reshape(self.num_batch, -1) # shape: (B, num*num_dof)
