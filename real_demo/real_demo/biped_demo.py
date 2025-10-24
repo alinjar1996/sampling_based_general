@@ -60,12 +60,12 @@ class Planner(Node):
         self.pathes = {
         "setup": os.path.join(
             PACKAGE_DIR, "data", "planner", "setup",
-            f"setup_walker_{num_batch}_{num_steps}_{maxiter_cem}_"
+            f"setup_g1_{num_batch}_{num_steps}_{maxiter_cem}_"
             f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
         ),
         "trajectory": os.path.join(
             PACKAGE_DIR, "data", "planner", "trajectory",
-            f"traj_walker_{num_batch}_{num_steps}_{maxiter_cem}_"
+            f"traj_g1_{num_batch}_{num_steps}_{maxiter_cem}_"
             f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
         )}
 
@@ -105,7 +105,7 @@ class Planner(Node):
 
         
         # Initialize MuJoCo model and data
-        model_path = os.path.join(get_package_share_directory('real_demo'), 'walker_mjx', 'scene.xml')
+        model_path = os.path.join(get_package_share_directory('real_demo'), 'g1_mjx', 'scene.xml')
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.model.opt.timestep = self.timestep
 
