@@ -113,7 +113,7 @@ class run_cem_planner:
 
 		# ctrl = mjx_data.ctrl.at[jnp.array(self.actuator_ctrl_indices)].set(control_single)
 
-        print("self.cem.actuator_ctrl_indices", self.cem.actuator_ctrl_indices)
+        # print("self.cem.actuator_ctrl_indices", self.cem.actuator_ctrl_indices)
 
         current_pos_ = current_mjx_data.qpos.at[self.cem.joint_mask_pos].set(current_pos)
         current_vel_ = current_mjx_data.qvel.at[self.cem.joint_mask_vel].set(current_vel)

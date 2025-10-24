@@ -15,6 +15,7 @@ import mujoco
 import mujoco.mjx as mjx 
 import jax
 import jax.numpy as jnp
+import xml.etree.ElementTree as ET
 
 # Get the folder containing this script
 current_dir = os.path.dirname(os.path.abspath(__file__))  # if in a script
@@ -255,6 +256,8 @@ class cem_planner():
         # Standing configuration
 		self.qstand = jnp.array(self.model.keyframe("stand").qpos)
 
+		self.p_min, self.p_max = self.extract_joint_limits_from_model(self.model)
+
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_control, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
@@ -277,8 +280,45 @@ class cem_planner():
 			f'\n Number of Total constraints: {self.num_total_constraints}',
 
 		)
+	
+	def extract_joint_limits_from_model(self, model):
+		"""
+		Extracts u_min and u_max for all position-controlled joints directly 
+		from the loaded MuJoCo model object, ensuring the order matches the actuators.
 
-    
+		Args:
+			model: The loaded mujoco.MjModel instance (e.g., self.model).
+
+		Returns:
+			A tuple (u_min, u_max) of JAX arrays, shape (num_controlled_dof,).
+		"""
+		
+		# 1. Get the ID of the kinematic element (joint) targeted by each actuator.
+		# For position actuators, model.actuator_trnid[:, 0] gives the joint ID in actuator order (nu=29).
+		# We slice up to model.nu to ensure we only consider defined actuators.
+		joint_ids = model.actuator_trnid[:model.nu, 0].copy() 
+		
+		# 2. Check which of these joints are actually limited.
+		# The jnt_range values are only meaningful if model.jnt_limited is True for that ID.
+		is_limited = model.jnt_limited[joint_ids].astype(bool)
+		
+		# 3. Filter the IDs to only include the limited ones.
+		# This ensures your final arrays only contain valid range data. (Should be all 29 joints for this robot).
+		limited_joint_ids = joint_ids[is_limited]
+		
+		# 4. Extract limits from the full joint range table (model.jnt_range has shape (model.njnt, 2)).
+		# The indices used here ensure the limits maintain the actuator order.
+		u_min_np = model.jnt_range[limited_joint_ids, 0]
+		u_max_np = model.jnt_range[limited_joint_ids, 1]
+		
+		# 5. Convert to JAX arrays
+		u_min = jnp.array(u_min_np)
+		u_max = jnp.array(u_max_np)
+		
+		return u_min, u_max
+
+	# Example usage (assuming your XML is saved as 'robot_model.xml'):
+	# self.u_min, self.u_max = extract_joint_limits_from_xml('robot_model.xml')
 	def get_A_control(self):
 
 		# This is valid while dealing with knots anfd projecting into pos,vel,acc space with Bernstein Polynomials
@@ -335,11 +375,29 @@ class cem_planner():
 										 init_pos):
 		
 	
+		# Expand limits across the batch dimension: (num_batch, num_dof)
+		u_max_batch = jnp.tile(jnp.expand_dims(self.p_max, axis=0), (self.num_batch, 1))
+		u_min_batch = jnp.tile(jnp.expand_dims(self.p_min, axis=0), (self.num_batch, 1))
+		init_pos_batch = jnp.tile(init_pos, (self.num_batch, 1))
+
+		# Upper bounds: u_max - u_init (relative change limit)
+		b_pos_upper = u_max_batch - init_pos_batch  # shape (num_batch, num_dof)
+
+		# Lower bounds: -(u_min - u_init) for the -u constraint
+		b_pos_lower = -(u_min_batch - init_pos_batch)  # shape (num_batch, num_dof)
 		
-		b_control = jnp.hstack((
-			self.pos_max * jnp.ones((self.num_batch, self.num_control_constraints // 2)),
-			self.pos_max * jnp.ones((self.num_batch, self.num_control_constraints // 2))
-		))
+		# Repeat across all time steps
+		repeat_factor = self.num_control_constraints // (2 * self.num_dof) 
+		
+		b_pos_upper_flat = jnp.repeat(b_pos_upper, repeats=repeat_factor, axis=1) 
+		b_pos_lower_flat = jnp.repeat(b_pos_lower, repeats=repeat_factor, axis=1)  
+		
+		b_control = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])
+
+		# b_control = jnp.hstack((
+		# 	self.pos_max * jnp.ones((self.num_batch, self.num_control_constraints // 2)),
+		# 	self.pos_max * jnp.ones((self.num_batch, self.num_control_constraints // 2))
+		# ))
 
 		b_dcontrol = jnp.hstack((
 			self.vel_max * jnp.ones((self.num_batch, self.num_dcontrol_constraints // 2)),
@@ -392,10 +450,11 @@ class cem_planner():
 		# # b_pos = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])
         
 		# # b_control = jnp.hstack((b_control, b_dcontrol, b_ddcontrol, b_pos))
-		b_control = jnp.hstack((b_control, b_dcontrol, b_ddcontrol))
+
+		b_control_all = jnp.hstack((b_control, b_dcontrol, b_ddcontrol))
 
 		# Augmented bounds with slack variables
-		b_control_aug = b_control - s_init
+		b_control_aug = b_control_all - s_init
 
 
 		# Cost matrix
@@ -427,11 +486,11 @@ class cem_planner():
 		# Update slack variables
 		s = jnp.maximum(
 			jnp.zeros((self.num_batch, self.num_total_constraints)),
-			-jnp.dot(self.A_control, xi_projected.T).T + b_control
+			-jnp.dot(self.A_control, xi_projected.T).T + b_control_all
 		)
 
 		# Compute residual
-		res_vec = jnp.dot(self.A_control, xi_projected.T).T - b_control + s
+		res_vec = jnp.dot(self.A_control, xi_projected.T).T - b_control_all + s
 		res_norm = jnp.linalg.norm(res_vec, axis=1)
 		
 		lamda = lamda_init - self.rho_ineq * jnp.dot(self.A_control.T, res_vec.T).T
@@ -707,7 +766,8 @@ class cem_planner():
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
 		
-		control = jnp.dot(self.A_pos, xi_samples.T).T
+		# control = jnp.dot(self.A_pos, xi_samples.T).T
+		control = jnp.dot(self.A_pos, xi_filtered.T).T
 
 		mjx_data_current = carry[-1]
 

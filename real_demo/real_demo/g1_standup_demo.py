@@ -234,7 +234,7 @@ class Planner(Node):
             geom_id = viewer_.user_scn.ngeom
             viewer_.user_scn.ngeom += 1
 
-            size = np.array([0.02, 0.02, 0.02], dtype=np.float64)
+            size = np.array([0.01, 0.01, 0.01], dtype=np.float64)
             pos = np.array(pos, dtype=np.float64).reshape(3)
             mat = np.eye(3, dtype=np.float64).flatten()
 
