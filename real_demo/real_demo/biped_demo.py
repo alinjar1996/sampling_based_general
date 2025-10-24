@@ -96,7 +96,7 @@ class Planner(Node):
             'height': 20.0,
 			'orientation': 15.0,
             'velocity': 15.0,
-            'control': 0.01
+            'control': 0.1
         }
 
 

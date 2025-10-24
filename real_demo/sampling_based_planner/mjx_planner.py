@@ -730,9 +730,9 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		torque = jnp.dot(self.A_torque, xi_filtered.T).T
+		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		# torque = jnp.dot(self.A_torque, xi_samples.T).T
+		torque = jnp.dot(self.A_torque, xi_samples.T).T
 
 		mjx_data_current = carry[-1]
 
