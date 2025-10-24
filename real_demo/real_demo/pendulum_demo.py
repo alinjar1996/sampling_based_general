@@ -299,15 +299,11 @@ class Planner(Node):
 
         
         
-        # self.data.ctrl[self.joint_ctrl_indices] = self.torque
 
-        # self.data.ctrl[:] = np.zeros(len(self.joint_mask_vel))
-        # self.data.ctrl[self.joint_mask_vel] = self.torque
 
         self.data.ctrl[self.actuator_ctrl_indices] = self.torque
         
 
-        # print("self.data.qvel", self.data.qvel)
 
         mujoco.mj_step(self.model, self.data)
         
