@@ -31,8 +31,8 @@ from math_utils.bernstein_coeff_ordern_arbitinterval import bernstein_coeff_orde
 class cem_planner():
 
 	def __init__(self, model=None, num_dof=None, num_batch=None, num_steps=None, timestep=None, maxiter_cem=None, num_elite=None, 
-			     maxiter_projection=None, max_joint_inttorque = None ,max_joint_torque = None, 
-				 max_joint_dtorque = None, max_joint_ddtorque = None):
+			     maxiter_projection=None, max_joint_intcontrol = None ,max_joint_control = None, 
+				 max_joint_dcontrol = None, max_joint_ddcontrol = None):
 		super(cem_planner, self).__init__()
 	    
 
@@ -43,17 +43,16 @@ class cem_planner():
 		self.num_elite = num_elite
 
 		self.t_fin = self.num*self.t
-		# self.init_joint_position = np.array([1.5, -1.8, 1.75, -1.25, -1.6, 0, -1.5, -1.8, 1.75, -1.25, -1.6, 0])
-		self.init_joint_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
 		
 		tot_time = np.linspace(0, self.t_fin, self.num)
 		self.tot_time = tot_time
 		tot_time_copy = tot_time.reshape(self.num, 1)
 
-		# self.P = jnp.identity(self.num) # Torque mapping 
-		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
-		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
-		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
+		# self.P = jnp.identity(self.num) # control mapping 
+		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # Dcontrol mapping
+		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDcontrol mapping
+		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # Intcontrol mapping
 		
 		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
@@ -70,61 +69,61 @@ class cem_planner():
 
 		self.A_projection = jnp.identity(self.nvar)
 
-		A_torque_ineq, A_torque = self.get_A_torque()
-		self.A_torque_ineq = jnp.asarray(A_torque_ineq) 
-		self.A_torque = jnp.asarray(A_torque)
+		A_pos_ineq, A_pos = self.get_A_pos()
+		self.A_pos_ineq = jnp.asarray(A_pos_ineq) 
+		self.A_pos = jnp.asarray(A_pos)
 
-		A_dtorque_ineq, A_dtorque = self.get_A_dtorque()
-		self.A_dtorque_ineq = jnp.asarray(A_dtorque_ineq) 
-		self.A_dtorque = jnp.asarray(A_dtorque)
+		A_vel_ineq, A_vel = self.get_A_vel()
+		self.A_vel_ineq = jnp.asarray(A_vel_ineq) 
+		self.A_vel = jnp.asarray(A_vel)
 
-		A_ddtorque_ineq, A_ddtorque = self.get_A_ddtorque()
-		self.A_ddtorque_ineq = jnp.asarray(A_ddtorque_ineq)
-		self.A_ddtorque = jnp.asarray(A_ddtorque)
+		A_acc_ineq, A_acc = self.get_A_acc()
+		self.A_acc_ineq = jnp.asarray(A_acc_ineq)
+		self.A_acc = jnp.asarray(A_acc)
   
-		A_int_torque_ineq, A_int_torque = self.get_A_int_torque()
-		self.A_int_torque_ineq = jnp.asarray(A_int_torque_ineq) 
-		self.A_int_torque = jnp.asarray(A_int_torque)
+		A_int_pos_ineq, A_int_pos = self.get_A_int_pos()
+		self.A_int_pos_ineq = jnp.asarray(A_int_pos_ineq) 
+		self.A_int_pos = jnp.asarray(A_int_pos)
 
 		# Combined control matrix (like A_control in )
 		self.A_control = jnp.vstack((
-			self.A_torque_ineq,
-			self.A_dtorque_ineq,
-			self.A_ddtorque_ineq
-		#	self.A_int_torque_ineq
+			self.A_pos_ineq,
+			self.A_vel_ineq,
+			self.A_acc_ineq
+		#	self.A_int_pos_ineq
 		))
 
 		A_eq = self.get_A_eq()
 		self.A_eq = jnp.asarray(A_eq)
 
-		A_inttorque, A_torque, A_dtorque, A_ddtorque = self.get_A_torque_control()
+		A_intpos, A_pos, A_vel, A_acc = self.get_A_control()
 
-		self.A_inttorque = np.asarray(A_inttorque)
-		self.A_torque = np.asarray(A_torque)
-		self.A_dtorque = np.asarray(A_dtorque)
-		self.A_ddtorque = np.asarray(A_ddtorque)
+		self.A_intpos = np.asarray(A_intpos)
+		self.A_pos = np.asarray(A_pos)
+		self.A_vel = np.asarray(A_vel)
+		self.A_acc = np.asarray(A_acc)
 		
 		self.key= jax.random.PRNGKey(42)
 		self.maxiter_projection = maxiter_projection
 		self.maxiter_cem = maxiter_cem
 
-		self.torque_max = max_joint_torque
-		self.dtorque_max = max_joint_dtorque
-		self.ddtorque_max = max_joint_ddtorque
-		# self.inttorque_max = max_joint_inttorque		
+		self.pos_max = max_joint_control
+		self.vel_max = max_joint_dcontrol
+		self.acc_max = max_joint_ddcontrol
+			
 		    
     	# Calculating number of Inequality constraints
-		self.num_torque   = self.P.shape[0]       # number of time samples for torque 
-		self.num_dtorque  = self.Pdot.shape[0]    # number of samples for rate of change)
-		self.num_ddtorque = self.Pddot.shape[0]   # number of samples for double rate of change
-		self.num_inttorque = self.Pint.shape[0]   # number of samples for integrated torque
+		self.num_control   = self.P.shape[0]       # number of time samples for control 
+		self.num_dcontrol  = self.Pdot.shape[0]    # number of samples for rate of change of control)
+		self.num_ddcontrol = self.Pddot.shape[0]   # number of samples for double rate of change of control
+		self.num_intcontrol = self.Pint.shape[0]   # number of samples for integrated control
 
-		self.num_torque_constraints = 2 * self.num_torque * num_dof
-		self.num_dtorque_constraints = 2 * self.num_dtorque * num_dof
-		self.num_ddtorque_constraints = 2 * self.num_ddtorque * num_dof
-		self.num_inttorque_constraints = 2 * self.num_inttorque * num_dof
-		self.num_total_constraints = (self.num_torque_constraints + self.num_dtorque_constraints + 
-								      self.num_ddtorque_constraints)
+		self.num_control_constraints = 2 * self.num_control * num_dof
+		self.num_dcontrol_constraints = 2 * self.num_dcontrol * num_dof
+		self.num_ddcontrol_constraints = 2 * self.num_ddcontrol * num_dof
+		self.num_intcontrol_constraints = 2 * self.num_intcontrol * num_dof
+		self.num_total_constraints = (self.num_control_constraints + self.num_dcontrol_constraints + 
+								      self.num_ddcontrol_constraints)
 		self.num_total_constraints_per_dof = self.num_total_constraints / self.num_dof
 
 		self.ellite_num = int(self.num_elite*self.num_batch)
@@ -170,14 +169,37 @@ class cem_planner():
 		# 				'shoulder_pan_joint_2', 'shoulder_lift_joint_2', 'elbow_joint_2', 'wrist_1_joint_2', 'wrist_2_joint_2', 'wrist_3_joint_2'])
 		
 	
-		robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
-                         'left_hip', 'left_knee', 'left_ankle'])
+		# robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
+        #                  'left_hip', 'left_knee', 'left_ankle'])
+		robot_joints_left_leg = np.array(['left_hip_pitch_joint', 'left_hip_roll_joint', 'left_hip_yaw_joint',
+                                          'left_knee_joint', 'left_ankle_pitch_joint', 'left_ankle_roll_joint'])
+		robot_joints_right_leg = np.array(['right_hip_pitch_joint', 'right_hip_roll_joint', 'right_hip_yaw_joint',
+                                           'right_knee_joint', 'right_ankle_pitch_joint', 'right_ankle_roll_joint'])
+		robot_joints_waist = np.array(['waist_yaw_joint', 'waist_roll_joint', 'waist_pitch_joint'])
+		robot_joints_left_arm = np.array(['left_shoulder_pitch_joint', 'left_shoulder_roll_joint', 'left_shoulder_yaw_joint',
+                                          'left_elbow_joint', 'left_wrist_roll_joint', 'left_wrist_pitch_joint', 'left_wrist_yaw_joint'])
+		robot_joints_right_arm = np.array(['right_shoulder_pitch_joint', 'right_shoulder_roll_joint', 'right_shoulder_yaw_joint',
+                                          'right_elbow_joint', 'right_wrist_roll_joint', 'right_wrist_pitch_joint', 'right_wrist_yaw_joint'])
 		
-		self.joint_mask_pos = np.isin(np.array(joint_names_pos), robot_joints)
-		self.joint_mask_vel = np.isin(np.array(joint_names_vel), robot_joints)
-		self.joint_mask_ctrl = np.isin(np.array(joint_names_ctrl), robot_joints)
+		self.robot_joints = np.concatenate([
+            robot_joints_left_leg,
+            robot_joints_right_leg,
+            robot_joints_waist,
+            robot_joints_left_arm,
+            robot_joints_right_arm
+        ])
+		
+		self.joint_mask_pos = np.isin(np.array(joint_names_pos), self.robot_joints)
+		self.joint_mask_vel = np.isin(np.array(joint_names_vel), self.robot_joints)
+		self.joint_mask_ctrl = np.isin(np.array(joint_names_ctrl), self.robot_joints)
 		self.joint_ctrl_indices = jnp.where(self.joint_mask_ctrl)[0]
-		actuator_joint_ids = self.model.actuator_trnid[:, 0]
+
+		# Find where your first controllable joint appears
+		actuator_joint_ids_ = model.actuator_trnid[:, 0]
+		offset_joint_id = np.where(self.joint_mask_ctrl)[0][0] - actuator_joint_ids_[0]
+		actuator_joint_ids = model.actuator_trnid[:, 0] + offset_joint_id
+
+		# actuator_joint_ids = self.model.actuator_trnid[:, 0]
 		self.actuator_ctrl_indices = [
 			i for i, j in enumerate(actuator_joint_ids)
 			if self.joint_mask_ctrl[j]
@@ -189,9 +211,9 @@ class cem_planner():
 		# for i, name in enumerate(joint_names_pos):
 		# 	print(f"  {i}: '{name}' -> controlled: {self.joint_mask_pos[i]}")
 
-		print("\nVelocity-controlled joints:")  
-		for i, name in enumerate(joint_names_vel):
-			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_vel[i]}")
+		print("\nControlled joints:")  
+		for i, name in enumerate(joint_names_ctrl):
+			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_ctrl[i]}")
 
 		# print("\nRobot joints:", robot_joints)
 
@@ -217,24 +239,24 @@ class cem_planner():
 		
 		# self.hande_id_0 = self.model.body(name="hande_0").id
 
-				# Get sensor ids
-		self.torso_position_sensor = mujoco.mj_name2id(
-			self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_position"
-        )
-		self.torso_velocity_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_subtreelinvel"
-        )
-		self.torso_zaxis_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_zaxis"
-        )
-		self.target_velocity = 1.5
-		self.target_height = 1.2
+		# Get sensor ids
 
-		self.torso = self.model.site(name="torso_site").id
 
+		# Get sensor and site ids
+		self.orientation_sensor_id = self.model.sensor("imu_in_torso_quat").id
+		self.velocity_sensor_id = self.model.sensor("imu_in_torso_linvel").id
+		self.torso_id = self.model.site("imu_in_torso").id
+
+		# self.torso = self.model.site(name="torso_site").id
+
+        # Set the target height
+		self.target_height = 0.9
+
+        # Standing configuration
+		self.qstand = jnp.array(self.model.keyframe("stand").qpos)
 
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
-		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (None, 0, None, None))
+		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_control, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
 		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
           
@@ -253,46 +275,45 @@ class cem_planner():
 			f'\n Time per trajectory: {self.t_fin}',
 			f'\n Number of variables: {self.nvar}',
 			f'\n Number of Total constraints: {self.num_total_constraints}',
-			# f'\n Number of geomteric IDs for colllision: {len(self.geom_ids_all)}'
-		    # f'\n{self.mask.sum()} / {self.mask.shape[0]} contacts involve robot.'
+
 		)
 
     
-	def get_A_torque_control(self):
+	def get_A_control(self):
 
 		# This is valid while dealing with knots anfd projecting into pos,vel,acc space with Bernstein Polynomials
-		# A_inttorque = np.kron(np.identity(self.num_dof), self.P )
-		# A_torque = np.kron(np.identity(self.num_dof), self.Pdot )
-		# A_dtorque = np.kron(np.identity(self.num_dof), self.Pddot )
+		# A_intpos = np.kron(np.identity(self.num_dof), self.P )
+		# A_pos = np.kron(np.identity(self.num_dof), self.Pdot )
+		# A_vel = np.kron(np.identity(self.num_dof), self.Pddot )
         
         # This is valid while not using knots and bernstein polynomials; directlly using velocity
-		A_inttorque = np.kron(np.identity(self.num_dof), self.Pint )
-		A_torque = np.kron(np.identity(self.num_dof), self.P )
-		A_dtorque = np.kron(np.identity(self.num_dof), self.Pdot )
-		A_ddtorque = np.kron(np.identity(self.num_dof), self.Pddot )
+		A_intpos = np.kron(np.identity(self.num_dof), self.Pint )
+		A_pos = np.kron(np.identity(self.num_dof), self.P )
+		A_vel = np.kron(np.identity(self.num_dof), self.Pdot )
+		A_acc = np.kron(np.identity(self.num_dof), self.Pddot )
 
-		return A_inttorque, A_torque, A_dtorque, A_ddtorque	
+		return A_intpos, A_pos, A_vel, A_acc	
 
 
-	def get_A_int_torque(self):
-		A_int_torque = np.vstack(( self.Pint, -self.Pint))
-		A_int_torque_ineq = np.kron(np.identity(self.num_dof), A_int_torque )
-		return A_int_torque_ineq, A_int_torque
+	def get_A_int_pos(self):
+		A_int_pos = np.vstack(( self.Pint, -self.Pint))
+		A_int_pos_ineq = np.kron(np.identity(self.num_dof), A_int_pos )
+		return A_int_pos_ineq, A_int_pos
 	
-	def get_A_torque(self):
-		A_torque = np.vstack(( self.P, -self.P     ))
-		A_torque_ineq = np.kron(np.identity(self.num_dof), A_torque )
-		return A_torque_ineq, A_torque
+	def get_A_pos(self):
+		A_pos = np.vstack(( self.P, -self.P     ))
+		A_pos_ineq = np.kron(np.identity(self.num_dof), A_pos )
+		return A_pos_ineq, A_pos
 
-	def get_A_dtorque(self):
-		A_dtorque = np.vstack(( self.Pdot, -self.Pdot  ))
-		A_dtorque_ineq = np.kron(np.identity(self.num_dof), A_dtorque )
-		return A_dtorque_ineq, A_dtorque
+	def get_A_vel(self):
+		A_vel = np.vstack(( self.Pdot, -self.Pdot  ))
+		A_vel_ineq = np.kron(np.identity(self.num_dof), A_vel )
+		return A_vel_ineq, A_vel
 	
-	def get_A_ddtorque(self):
-		A_ddtorque = np.vstack(( self.Pddot, -self.Pddot  ))
-		A_ddtorque_ineq = np.kron(np.identity(self.num_dof), A_ddtorque )
-		return A_ddtorque_ineq, A_ddtorque
+	def get_A_acc(self):
+		A_acc = np.vstack(( self.Pddot, -self.Pddot  ))
+		A_acc_ineq = np.kron(np.identity(self.num_dof), A_acc )
+		return A_acc_ineq, A_acc
 	
 	def get_A_eq(self):
 		return np.kron(np.identity(self.num_dof), self.P[0])
@@ -315,63 +336,63 @@ class cem_planner():
 		
 	
 		
-		b_torque = jnp.hstack((
-			self.torque_max * jnp.ones((self.num_batch, self.num_torque_constraints // 2)),
-			self.torque_max * jnp.ones((self.num_batch, self.num_torque_constraints // 2))
+		b_control = jnp.hstack((
+			self.pos_max * jnp.ones((self.num_batch, self.num_control_constraints // 2)),
+			self.pos_max * jnp.ones((self.num_batch, self.num_control_constraints // 2))
 		))
 
-		b_dtorque = jnp.hstack((
-			self.dtorque_max * jnp.ones((self.num_batch, self.num_dtorque_constraints // 2)),
-			self.dtorque_max * jnp.ones((self.num_batch, self.num_dtorque_constraints // 2))
+		b_dcontrol = jnp.hstack((
+			self.vel_max * jnp.ones((self.num_batch, self.num_dcontrol_constraints // 2)),
+			self.vel_max * jnp.ones((self.num_batch, self.num_dcontrol_constraints // 2))
 		))
 
-		b_ddtorque = jnp.hstack((
-			self.ddtorque_max * jnp.ones((self.num_batch, self.num_ddtorque_constraints // 2)),
-			self.ddtorque_max * jnp.ones((self.num_batch, self.num_ddtorque_constraints // 2))
+		b_ddcontrol = jnp.hstack((
+			self.acc_max * jnp.ones((self.num_batch, self.num_ddcontrol_constraints // 2)),
+			self.acc_max * jnp.ones((self.num_batch, self.num_ddcontrol_constraints // 2))
 		))
         
 
 
-		init_pos_batch = jnp.tile(init_pos, (self.num_batch, 1))  # (num_batch, 1)
+		# init_pos_batch = jnp.tile(init_pos, (self.num_batch, 1))  # (num_batch, 1)
         
-		# Calculate bounds for each joint and each batch
-    	# # Upper bounds: p_max - init_pos, Lower bounds: p_max + init_pos (assuming symmetric limits)
-		# b_pos_upper = (self.inttorque_max - init_pos_batch)  # shape (num_batch, 1)
-		# b_pos_lower = (self.inttorque_max + init_pos_batch)  # shape (num_batch, 1)
-		# #b_pos_lower = (-self.p_min + init_pos_batch)  # shape (num_batch, 1)
+		# # Calculate bounds for each joint and each batch
+    	# # # Upper bounds: p_max - init_pos, Lower bounds: p_max + init_pos (assuming symmetric limits)
+		# # b_pos_upper = (self.intcontrol_max - init_pos_batch)  # shape (num_batch, 1)
+		# # b_pos_lower = (self.intcontrol_max + init_pos_batch)  # shape (num_batch, 1)
+		# # #b_pos_lower = (-self.p_min + init_pos_batch)  # shape (num_batch, 1)
         
 		
-		# # Corrected version
-		# b_pos_upper_flat = jnp.repeat(b_pos_upper, repeats=self.num_inttorque_constraints // (2 * self.num_dof), axis=1) 
-		# b_pos_lower_flat = jnp.repeat(b_pos_lower, repeats=self.num_inttorque_constraints // (2 * self.num_dof), axis=1)  
-		# b_pos = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])  
+		# # # Corrected version
+		# # b_pos_upper_flat = jnp.repeat(b_pos_upper, repeats=self.num_intcontrol_constraints // (2 * self.num_dof), axis=1) 
+		# # b_pos_lower_flat = jnp.repeat(b_pos_lower, repeats=self.num_intcontrol_constraints // (2 * self.num_dof), axis=1)  
+		# # b_pos = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])  
 
 
-		p_min = jnp.array([-20.0, -150.0, -45.0, -20.0, -150.0, -45.0])*jnp.pi/180
-		p_max = jnp.array([100.0, 0.0, 45.0, 100.0, 0.0, 45.0])*jnp.pi/180
+		# p_min = jnp.array([-20.0, -150.0, -45.0, -20.0, -150.0, -45.0])*jnp.pi/180
+		# p_max = jnp.array([100.0, 0.0, 45.0, 100.0, 0.0, 45.0])*jnp.pi/180
 
 
-		# -----------------------
-		# Compute bounds per joint and batch
-		# -----------------------
-		# Expand limits across batch dimension
-		p_max_batch = jnp.tile(jnp.expand_dims(p_max, axis=0), (self.num_batch, 1))
-		p_min_batch = jnp.tile(jnp.expand_dims(p_min, axis=0), (self.num_batch, 1))
+		# # -----------------------
+		# # Compute bounds per joint and batch
+		# # -----------------------
+		# # Expand limits across batch dimension
+		# p_max_batch = jnp.tile(jnp.expand_dims(p_max, axis=0), (self.num_batch, 1))
+		# p_min_batch = jnp.tile(jnp.expand_dims(p_min, axis=0), (self.num_batch, 1))
 
-		# Upper and lower bounds per joint
-		b_pos_upper = p_max_batch - init_pos_batch  # shape (num_batch, num_dof)
-		b_pos_lower = -p_min_batch + init_pos_batch # shape (num_batch, num_dof)
+		# # Upper and lower bounds per joint
+		# b_pos_upper = p_max_batch - init_pos_batch  # shape (num_batch, num_dof)
+		# b_pos_lower = -p_min_batch + init_pos_batch # shape (num_batch, num_dof)
 
-		# Repeat across time / constraints
-		repeat_factor = self.num_inttorque_constraints // (2 * self.num_dof)
-		b_pos_upper_flat = jnp.repeat(b_pos_upper, repeats=repeat_factor, axis=1)
-		b_pos_lower_flat = jnp.repeat(b_pos_lower, repeats=repeat_factor, axis=1)
+		# # Repeat across time / constraints
+		# repeat_factor = self.num_intcontrol_constraints // (2 * self.num_dof)
+		# b_pos_upper_flat = jnp.repeat(b_pos_upper, repeats=repeat_factor, axis=1)
+		# b_pos_lower_flat = jnp.repeat(b_pos_lower, repeats=repeat_factor, axis=1)
 
-		# Final bounds: concatenate upper and lower bounds
-		b_pos = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])
+		# # Final bounds: concatenate upper and lower bounds
+		# # b_pos = jnp.hstack([b_pos_upper_flat, b_pos_lower_flat])
         
-		# b_control = jnp.hstack((b_torque, b_dtorque, b_ddtorque, b_pos))
-		b_control = jnp.hstack((b_torque, b_dtorque, b_ddtorque))
+		# # b_control = jnp.hstack((b_control, b_dcontrol, b_ddcontrol, b_pos))
+		b_control = jnp.hstack((b_control, b_dcontrol, b_ddcontrol))
 
 		# Augmented bounds with slack variables
 		b_control_aug = b_control - s_init
@@ -463,48 +484,20 @@ class cem_planner():
 		return primal_sol, primal_residuals, fixed_point_residuals
 
 	
-
-	# @partial(jax.jit, static_argnums=(0,))
-	# def mjx_step(self, mjx_data, thetadot_single):
-	
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(thetadot_single)
-	# 	mjx_data = mjx_data.replace(qvel=qvel)
-		
-	# 	# Step the simulation
-	# 	mjx_data = self.jit_step(self.mjx_model, mjx_data)
-
-	# 	# Get joint positions and end-effector states
-	# 	theta = mjx_data.qpos[self.joint_mask_pos]
-
-	# 	torso_pos = mjx_data.site_xpos[self.torso]
-		
-
-		
-	# 	# Collision detection
-	# 	# collision = mjx_data.contact.dist[self.mask]
-	# 	collision = mjx_data.contact.dist
-
-	# 	return mjx_data, (
-	# 		theta, 
-	# 		torso_pos,
-	# 		collision
-	# 	)
-
-
 	@partial(jax.jit, static_argnums=(0,))
-	def mjx_step_torque(self, mjx_data, torque_single):
+	def mjx_step_control(self, mjx_data, control_single):
 		
-		# Apply the torques using the 'ctrl' field of mjx_data.
-		# We assume 'torque_single' contains the torques for the joints
+		# Apply the controls using the 'ctrl' field of mjx_data.
+		# We assume 'control_single' contains the controls for the joints
 		# corresponding to 'self.joint_mask_ctrl' (or similar mask for control inputs).
 		# NOTE: MuJoCo's control inputs are typically applied to 'mjx_data.ctrl'.
-		#ctrl = mjx_data.ctrl.at[self.joint_mask_ctrl].set(torque_single)
+		#ctrl = mjx_data.ctrl.at[self.joint_mask_ctrl].set(control_single)
 
-        # self.data.ctrl[self.actuator_ctrl_indices] = self.torque
-		ctrl = mjx_data.ctrl.at[jnp.array(self.actuator_ctrl_indices)].set(torque_single)
+        # self.data.ctrl[self.actuator_ctrl_indices] = self.control
+		ctrl = mjx_data.ctrl.at[jnp.array(self.actuator_ctrl_indices)].set(control_single)
 
-		# ctrl = mjx_data.ctrl.at[self.actuator_ctrl_indices].set(torque_single)
-		# ctrl = mjx_data.ctrl.at[self.joint_ctrl_indices].set(torque_single)
+		# ctrl = mjx_data.ctrl.at[self.actuator_ctrl_indices].set(control_single)
+		# ctrl = mjx_data.ctrl.at[self.joint_ctrl_indices].set(control_single)
 		mjx_data = mjx_data.replace(ctrl=ctrl)
 		
 		# Step the simulation
@@ -513,7 +506,7 @@ class cem_planner():
 		# Get joint positions and end-effector states
 		theta = mjx_data.qpos[self.joint_mask_pos]
 
-		torso_pos = mjx_data.site_xpos[self.torso]
+		torso_pos = mjx_data.site_xpos[self.torso_id]
 		
 		# Collision detection
 		# collision = mjx_data.contact.dist[self.mask]
@@ -524,25 +517,39 @@ class cem_planner():
 			torso_pos,
 			collision
 		)
+
+
+
+		
+    
+	@partial(jax.jit, static_argnums=(0,))
+	def compute_rollout_single_control(self, mjx_data_current, controls, init_pos, init_vel):
+		# Initialize MJX data with initial position and velocity
+		# mjx_data_current = self.mjx_data
+		# mjx_data = self.mjx_data
+		qvel = mjx_data_current.qvel.at[self.joint_mask_vel].set(init_vel)
+		qpos = mjx_data_current.qpos.at[self.joint_mask_pos].set(init_pos)
+
+		mjx_data = mjx_data_current.replace(qvel=qvel, qpos=qpos)
+
+		# 2. Reshape the input controls for jax.lax.scan
+		# The input is now 'controls' (a control signal) instead of 'thetadot'.
+		# Note: 'self.num_dof' should likely be replaced by 'self.num_ctrl' or
+		# the dimension of the control space if they are different.
+		control_single = controls.reshape(self.num_dof, self.num)
+		
+		# 3. Perform the rollout using the control-based step function
+		# Call self.mjx_step_control instead of self.mjx_step.
+		mjx_data_final, out = jax.lax.scan(self.mjx_step_control, mjx_data, control_single.T, length=self.num)
+		
+		theta, torso_pos, collision = out
+
+		# sensor_data = mjx_data_final.sensordata
+		
+		return theta.T.flatten(), torso_pos, collision, mjx_data_final
+
+
 	
-
-
-	# @partial(jax.jit, static_argnums=(0,))
-	# def compute_rollout_single(self, thetadot, init_pos, init_vel):
-
-	# 	mjx_data = self.mjx_data
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(init_vel)
-	# 	qpos = mjx_data.qpos.at[self.joint_mask_pos].set(init_pos)
-
-	# 	mjx_data = mjx_data.replace(qvel=qvel, qpos=qpos)
-
-	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
-	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
-	# 	theta, torso_pos, collision = out
-	# 	#Sensor data
-	# 	sensor_data = mjx_data_final.sensordata
-
-	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
 
 	# @partial(jax.jit, static_argnums=(0,))
 	# def compute_rollout_single(self, mjx_data_current, thetadot, init_pos, init_vel):
@@ -560,80 +567,49 @@ class cem_planner():
 		
 	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
 
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_rollout_single_torque(self, mjx_data_current, torques, init_pos, init_vel):
-		# Initialize MJX data with initial position and velocity
-		# mjx_data_current = self.mjx_data
-		# mjx_data = self.mjx_data
-		qvel = mjx_data_current.qvel.at[self.joint_mask_vel].set(init_vel)
-		qpos = mjx_data_current.qpos.at[self.joint_mask_pos].set(init_pos)
 
-		mjx_data = mjx_data_current.replace(qvel=qvel, qpos=qpos)
-
-		# 2. Reshape the input torques for jax.lax.scan
-		# The input is now 'torques' (a control signal) instead of 'thetadot'.
-		# Note: 'self.num_dof' should likely be replaced by 'self.num_ctrl' or
-		# the dimension of the control space if they are different.
-		torque_single = torques.reshape(self.num_dof, self.num)
-		
-		# 3. Perform the rollout using the torque-based step function
-		# Call self.mjx_step_torque instead of self.mjx_step.
-		mjx_data_final, out = jax.lax.scan(self.mjx_step_torque, mjx_data, torque_single.T, length=self.num)
-		
-		theta, torso_pos, collision = out
-
-		sensor_data = mjx_data_final.sensordata
-		
-		return theta.T.flatten(), torso_pos, collision, sensor_data
 
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_cost_single(self, torque_single, sensor_data, cost_weights):
-	
-
-		# --- Inline sensor extraction ---
-		def get_torso_height(sensor_data) -> jax.Array:
+	def compute_cost_single(self, control_single, mjx_data, cost_weights):
+	    
+		def _get_torso_height(mjx_data) -> jax.Array:
 			"""Get the height of the torso above the ground."""
-			sensor_adr = self.model.sensor_adr[self.torso_position_sensor]
-			return sensor_data[sensor_adr + 2]  # px, py, pz
-
-		def get_torso_velocity(sensor_data) -> jax.Array:
-			"""Get the horizontal velocity of the torso."""
-			sensor_adr = self.model.sensor_adr[self.torso_velocity_sensor]
-			return sensor_data[sensor_adr]
-
-		def get_torso_deviation_from_upright(sensor_data) -> jax.Array:
-			"""Get the deviation of the torso from the upright position."""
-			sensor_adr = self.model.sensor_adr[self.torso_zaxis_sensor]
-			return sensor_data[sensor_adr + 2] - 1.0
+			return mjx_data.site_xpos[self.torso_id, 2]
+		
+		def _get_torso_orientation(mjx_data) -> jax.Array:
+			"""Get the rotation from the current torso orientation to upright."""
+			sensor_adr = self.model.sensor_adr[self.orientation_sensor_id]
+			quat = mjx_data.sensordata[sensor_adr : sensor_adr + 4]
+			upright = jnp.array([0.0, 0.0, 1.0])
+			return mjx._src.math.rotate(upright, quat)
+		
         
 		# jax.debug.print("get_torso_height{}", get_torso_height(sensor_data))
 		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
 		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
 
+		orientation_cost = jnp.sum(
+            jnp.square(_get_torso_orientation(mjx_data))
+        )
 		height_cost = jnp.square(
-            get_torso_height(sensor_data) - self.target_height
-        )
-        
-		orientation_cost = jnp.square(
-            get_torso_deviation_from_upright(sensor_data)
+            _get_torso_height(mjx_data) - self.target_height
         )
 
-		velocity_cost = jnp.square(
-            get_torso_velocity(sensor_data) - self.target_velocity
-        )
+		nominal_cost = jnp.sum(jnp.square(mjx_data.qpos[7:] - self.qstand[7:]))
+	
 
-		control_cost = jnp.sum(jnp.square(torque_single))
+		control_cost = jnp.sum(jnp.square(control_single))
 
 		cost = (
-			cost_weights['height'] * height_cost + cost_weights['orientation'] * orientation_cost 
-			+ cost_weights['velocity'] * velocity_cost + cost_weights['control']*control_cost
+			cost_weights['orientation'] * orientation_cost 
+			+cost_weights['height'] * height_cost 
+			+ cost_weights['nominal'] * nominal_cost
 		)	
 
 		cost_list = jnp.array([
-			cost_weights['height'] * height_cost, 
 			cost_weights['orientation'] * orientation_cost,
-			cost_weights['velocity'] * velocity_cost,
-			cost_weights['control'] * control_cost
+			cost_weights['height'] * height_cost, 
+			cost_weights['nominal'] * nominal_cost
 		])
 
 		return cost, cost_list
@@ -649,7 +625,7 @@ class cem_planner():
 	def compute_xi_samples(self, key, xi_mean, xi_cov ):
 		key, subkey = jax.random.split(key)
 		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov, (self.num_batch, ))
-		xi_samples = jnp.clip(xi_samples, a_min =-1.0, a_max=1.0)
+		# xi_samples = jnp.clip(xi_samples, a_min =-1.0, a_max=1.0)
 		return xi_samples, key
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -730,14 +706,13 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		torque = jnp.dot(self.A_torque, xi_samples.T).T
+		control = jnp.dot(self.A_pos, xi_samples.T).T
 
 		mjx_data_current = carry[-1]
 
-		theta, torso_pos, collision, sensor_data = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
-		cost_batch, cost_list_batch = self.compute_cost_batch(torque, sensor_data, cost_weights)
+		theta, torso_pos, collision, mjx_data_updated = self.compute_rollout_batch(mjx_data_current, control, init_pos, init_vel)
+		cost_batch, cost_list_batch = self.compute_cost_batch(control, mjx_data_updated, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
 		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
@@ -745,7 +720,7 @@ class cem_planner():
 
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 
-		return carry, (cost_batch, cost_list_batch, torque, theta, xi_samples,
+		return carry, (cost_batch, cost_list_batch, control, theta, xi_samples,
 				 avg_res_primal, avg_res_fixed_point, primal_residuals, fixed_point_residuals, xi_filtered, torso_pos)
 	
 	@partial(jax.jit, static_argnums=(0,))
@@ -755,7 +730,7 @@ class cem_planner():
 		init_pos, 
 		init_vel, 
 		init_acc,
-		init_torque,
+		init_ctrl,
 		lamda_init,
 		s_init,
 		xi_samples,
@@ -763,9 +738,9 @@ class cem_planner():
 		):
 
 
-		torque_init = jnp.tile(init_torque, (self.num_batch, 1))
+		ctrl_init = jnp.tile(init_ctrl, (self.num_batch, 1))
 
-		state_term = torque_init	
+		state_term = ctrl_init	
 		
 		key, subkey = jax.random.split(self.key)
 
@@ -774,13 +749,13 @@ class cem_planner():
 		
 		carry, out = jax.lax.scan(self.cem_iter, carry, scan_over, length=self.maxiter_cem)
 
-		(cost_batch, cost_list_batch, torque, theta, 
+		(cost_batch, cost_list_batch, control, theta, 
          xi_samples_all, avg_res_primal, avg_res_fixed, 
 		 primal_residuals, fixed_point_residuals, xi_filtered, torso_pos) = out
 
 		idx_min = jnp.argmin(cost_batch[-1])
 		cost = jnp.min(cost_batch, axis=1)
-		best_torques = torque[-1][idx_min].reshape((self.num_dof, self.num)).T
+		best_controls = control[-1][idx_min].reshape((self.num_dof, self.num)).T
 		best_traj = theta[-1][idx_min].reshape((self.num_dof, self.num)).T
 
 		best_cost_list = cost_list_batch[-1][idx_min]
@@ -801,13 +776,13 @@ class cem_planner():
 		return (
 			best_cost_cem,
 			best_cost_list_cem,
-			best_torques,
+			best_controls,
 			best_traj,
 			xi_mean,
 			xi_cov,
 			xi_samples_all,
 			xi_filtered,
-			torque,
+			control,
 			theta,
 			avg_res_primal,
 			avg_res_fixed,

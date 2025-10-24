@@ -18,8 +18,8 @@ from io import StringIO
 class run_cem_planner:
     def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
                  maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=None,
-                 max_joint_inttorque=0.0, max_joint_torque=1.0, 
-                 max_joint_dtorque=10.0, max_joint_ddtorque=20.0,
+                 max_joint_intcontrol=0.0, max_joint_control=1.0, 
+                 max_joint_dcontrol=10.0, max_joint_ddcontrol=20.0,
                  device='cuda', cost_weights=None):
         
         # Initialize parameters
@@ -46,10 +46,10 @@ class run_cem_planner:
             num_elite=num_elite,
             timestep=timestep,
             maxiter_projection=maxiter_projection,
-            max_joint_inttorque=max_joint_inttorque,
-            max_joint_torque=max_joint_torque,
-            max_joint_dtorque=max_joint_dtorque,
-            max_joint_ddtorque=max_joint_ddtorque
+            max_joint_intcontrol=max_joint_intcontrol,
+            max_joint_control=max_joint_control,
+            max_joint_dcontrol=max_joint_dcontrol,
+            max_joint_ddcontrol=max_joint_ddcontrol
         )
         
         # Initialize CEM variables
@@ -89,7 +89,7 @@ class run_cem_planner:
         return C
 
         
-    def compute_control(self, sim_data, current_pos, current_vel, current_torque):
+    def compute_control(self, sim_data, current_pos, current_vel, current_control):
         """Compute optimal control using CEM/MPC for dual-arm system"""
         
         # Handle covariance matrix numerical stability
@@ -111,15 +111,17 @@ class run_cem_planner:
         self.mjx_model = mujoco.mjx.put_model(self.model)
         current_mjx_data = mujoco.mjx.put_data(self.model, sim_data)
 
-		# ctrl = mjx_data.ctrl.at[jnp.array(self.actuator_ctrl_indices)].set(torque_single)
+		# ctrl = mjx_data.ctrl.at[jnp.array(self.actuator_ctrl_indices)].set(control_single)
+
+        print("self.cem.actuator_ctrl_indices", self.cem.actuator_ctrl_indices)
 
         current_pos_ = current_mjx_data.qpos.at[self.cem.joint_mask_pos].set(current_pos)
         current_vel_ = current_mjx_data.qvel.at[self.cem.joint_mask_vel].set(current_vel)
-        current_torque_ = current_mjx_data.ctrl.at[jnp.array(self.cem.actuator_ctrl_indices)].set(current_torque)
+        current_control_ = current_mjx_data.ctrl.at[jnp.array(self.cem.actuator_ctrl_indices)].set(current_control)
 
 
 
-        current_mjx_data = current_mjx_data.replace(qpos = current_pos_, qvel = current_vel_, ctrl=current_torque_)
+        current_mjx_data = current_mjx_data.replace(qpos = current_pos_, qvel = current_vel_, ctrl=current_control_)
         # current_mjx_data = current_mjx_data.replace(qpos = current_pos_, qvel = current_vel_)
         # current_mjx_data = jax.jit(mujoco.mjx.forward)(self.mjx_model, current_mjx_data )
         # current_mjx_data = sim_data
@@ -130,8 +132,8 @@ class run_cem_planner:
         # print("current_vel", current_vel.shape)
 
         # CEM computation
-        cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
-        self.xi_mean, self.xi_cov, xi_samples, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
+        cost_cem, cost_list_cem, control_horizon, theta_horizon, \
+        self.xi_mean, self.xi_cov, xi_samples, control_filtered_cem, control_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
@@ -139,7 +141,7 @@ class run_cem_planner:
             current_pos,
             current_vel,
             np.zeros(self.num_dof),  # Zero initial acceleration
-            current_torque,
+            current_control,
             self.lamda_init,
             self.s_init,
             self.xi_samples,
@@ -147,20 +149,15 @@ class run_cem_planner:
         )
 
 
-        # Get mean velocity command (average middle 90% of trajectory)
-        # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
-        # torque_cem = np.mean(torque_horizon[1:int(0.8*self.num_steps)], axis=0)
-
-        # torque = torque_cem
-        torque = torque_horizon
+        control = control_horizon
         
-        return (torque, cost_cem, cost_list_cem, 
-                torque_horizon, 
+        return (control, cost_cem, cost_list_cem, 
+                control_horizon, 
                 theta_horizon, 
                 torso_trace_planned,
                 torso_trace_all,
-                torque_all,
-                torque_filtered_cem,
+                control_all,
+                control_filtered_cem,
                 primal_res,
                 fixed_res,
                 xi_samples)

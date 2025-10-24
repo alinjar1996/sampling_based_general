@@ -45,8 +45,8 @@ class Planner(Node):
         self.idx = str(self.idx).zfill(2)
 
         # Planner params
-        self.num_dof = 6
-        self.init_joint_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.num_dof = 29
+        self.init_joint_position = np.array([0.0]*self.num_dof)
         num_batch = self.get_parameter('num_batch').get_parameter_value().integer_value
         num_steps = self.get_parameter('num_steps').get_parameter_value().integer_value
         maxiter_cem = self.get_parameter('maxiter_cem').get_parameter_value().integer_value
@@ -60,12 +60,12 @@ class Planner(Node):
         self.pathes = {
         "setup": os.path.join(
             PACKAGE_DIR, "data", "planner", "setup",
-            f"setup_g1_{num_batch}_{num_steps}_{maxiter_cem}_"
+            f"setup_g1_standup_{num_batch}_{num_steps}_{maxiter_cem}_"
             f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
         ),
         "trajectory": os.path.join(
             PACKAGE_DIR, "data", "planner", "trajectory",
-            f"traj_g1_{num_batch}_{num_steps}_{maxiter_cem}_"
+            f"traj_g1_standup_{num_batch}_{num_steps}_{maxiter_cem}_"
             f"{maxiter_projection}_{int(self.timestep*1000)}_{int(num_elite*100)}_{self.idx}.npz"
         )}
 
@@ -73,17 +73,16 @@ class Planner(Node):
                 'batch_size': [num_batch],
                 'horizon': [num_steps],
                 'theta': [],           # Joint positions over time
-                'torque': [],          # Torque commands over time  
+                'control': [],          # control commands over time  
                 'cost_cem': [],        # CEM cost over time
                 'cost_height_cem': [],      # Theta cost component
-                'cost_velocity_cem': [],      # Velocity cost component
                 'cost_orientation_cem': [],      # Orientation cost component
-                'cost_control_cem': [],    # Control cost component
+                'cost_nominal_cem': [],    # Control cost component
                 'total_time': [],       # Timestamps
                 'theta_horizon': [],   # Planned theta horizon 
-                'torque_horizon': [], # Planned torque horizon
-                'torque_samples': [], # torque sample
-                'torque_filtered': [], # torque filtered
+                'control_horizon': [], # Planned control horizon
+                'control_samples': [], # control sample
+                'control_filtered': [], # control filtered
                 'torso_trace_planned': [], # best torso_trace
                 'torso_trace_all': [], # torso_trace_all_samples
                 'primal_res': [], # Primal residual
@@ -93,15 +92,14 @@ class Planner(Node):
             
 
         cost_weights = {
-            'height': 20.0,
-			'orientation': 15.0,
-            'velocity': 15.0,
-            'control': 0.1
+            'orientation': 20.0,
+			'height': 15.0,
+            'nominal': 15.0
         }
 
 
-        self.torque = np.zeros(self.num_dof)
-        self.torque_array = np.zeros((num_steps, self.num_dof))
+        self.control = np.zeros(self.num_dof)
+        self.control_array = np.zeros((num_steps, self.num_dof))
 
         
         # Initialize MuJoCo model and data
@@ -110,23 +108,37 @@ class Planner(Node):
         self.model.opt.timestep = self.timestep
 
          # Get sensor ids (similar to your cem_planner example)
-        self.torso_position_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_position"
-        )
-        self.torso_velocity_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_subtreelinvel"
-        )
-        self.torso_zaxis_sensor = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "torso_zaxis"
-        )
+                # Get sensor and site ids
+        self.orientation_sensor_id = self.model.sensor("imu_in_torso_quat").id
+        self.velocity_sensor_id = self.model.sensor("imu_in_torso_linvel").id
+        self.torso_id = self.model.site("imu_in_torso").id
+
         
-        print(f"Sensor IDs - Position: {self.torso_position_sensor}, "
-              f"Velocity: {self.torso_velocity_sensor}, "
-              f"Z-axis: {self.torso_zaxis_sensor}")
+        print(f"Sensor IDs - Orientation: {self.orientation_sensor_id}, "
+              f"Velocity: {self.velocity_sensor_id}, "
+              f"Torso: {self.torso_id}")
         
-        robot_joints = np.array(['right_hip', 'right_knee', 'right_ankle',
-                         'left_hip', 'left_knee', 'left_ankle'])
-  
+        robot_joints_left_leg = np.array(['left_hip_pitch_joint', 'left_hip_roll_joint', 'left_hip_yaw_joint',
+                                          'left_knee_joint', 'left_ankle_pitch_joint', 'left_ankle_roll_joint'])
+        robot_joints_right_leg = np.array(['right_hip_pitch_joint', 'right_hip_roll_joint', 'right_hip_yaw_joint',
+                                           'right_knee_joint', 'right_ankle_pitch_joint', 'right_ankle_roll_joint'])
+        robot_joints_waist = np.array(['waist_yaw_joint', 'waist_roll_joint', 'waist_pitch_joint'])
+        robot_joints_left_arm = np.array(['left_shoulder_pitch_joint', 'left_shoulder_roll_joint', 'left_shoulder_yaw_joint',
+                                          'left_elbow_joint', 'left_wrist_roll_joint', 'left_wrist_pitch_joint', 'left_wrist_yaw_joint'])
+        
+        robot_joints_right_arm = np.array(['right_shoulder_pitch_joint', 'right_shoulder_roll_joint', 'right_shoulder_yaw_joint',
+                                          'right_elbow_joint', 'right_wrist_roll_joint', 'right_wrist_pitch_joint', 'right_wrist_yaw_joint'])
+
+        self.robot_joints = np.concatenate([
+            robot_joints_left_leg,
+            robot_joints_right_leg,
+            robot_joints_waist,
+            robot_joints_left_arm,
+            robot_joints_right_arm
+        ])
+
+        # self.robot_joints = self.planner.cem.robot_joints
+        
         joint_names_pos = list()
         joint_names_vel = list()
         joint_names_ctrl = list()
@@ -149,9 +161,9 @@ class Planner(Node):
         
 
                          
-        self.joint_mask_pos = np.isin(joint_names_pos, robot_joints)
-        self.joint_mask_vel = np.isin(joint_names_vel, robot_joints)
-        self.joint_mask_ctrl = np.isin(joint_names_ctrl, robot_joints)
+        self.joint_mask_pos = np.isin(joint_names_pos, self.robot_joints)
+        self.joint_mask_vel = np.isin(joint_names_vel,self. robot_joints)
+        self.joint_mask_ctrl = np.isin(joint_names_ctrl, self.robot_joints)
         self.joint_ctrl_indices = jnp.where(self.joint_mask_ctrl)[0]
         self.actuator_joint_ids = self.model.actuator_trnid[:, 0]
         self.actuator_ctrl_indices = [
@@ -253,41 +265,41 @@ class Planner(Node):
         
         current_pos = self.data.qpos[self.joint_mask_pos]
         current_vel = self.data.qvel[self.joint_mask_vel]
-        # self.torque = np.mean(self.torque_array[1:int(0.5*self.planner.num_steps)], axis = 0)
-        self.torque = np.mean(self.torque_array[1:5], axis = 0)
-        current_torque = self.torque
+        # self.control = np.mean(self.control_array[1:int(0.5*self.planner.num_steps)], axis = 0)
+        self.control = np.mean(self.control_array[1:5], axis = 0)
+        current_control = self.control
 
-        print("self.torque", self.torque)
+        print("self.control", self.control)
         
         
         # Compute control
-        (self.torque_array, 
+        (self.control_array, 
          cost_cem, 
          cost_list_cem, 
-         torque_horizon, 
+         control_horizon, 
          theta_horizon, 
          torso_trace_planned,
          torso_trace_all,
-         torque_samples,
-         torque_filtered,
+         control_samples,
+         control_filtered,
          primal_res,
          fixed_res,
-         xi_samples) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
+         xi_samples) = self.planner.compute_control(self.data, current_pos, current_vel, current_control)
         
-        cost_height_cem, cost_orientation_cem, cost_velocity_cem, cost_control_cem = (
+        cost_orientation_cem, cost_height_cem, cost_nominal_cem = (
                     cost_list_cem[:, 0], 
                     cost_list_cem[:, 1], 
-                    cost_list_cem[:, 2], 
-                    cost_list_cem[:, 3]
+                    cost_list_cem[:, 2]
                 )
         
-        cost_height, cost_orientation, cost_velocity, cost_control = cost_list_cem[-1]
         
-        # Get the torso position from the sensor data
-        torso_pos = self.get_sensor_value(self.torso_position_sensor)
+        cost_orientation, cost_height, cost_nominal = cost_list_cem[-1]
+        
+        # # Get the torso position from the sensor data
+        # torso_pos = self.get_sensor_value(self.torso_position_sensor)
 
-        if self.viewer:
-            self.viewer.cam.lookat[:] = torso_pos
+        # if self.viewer:
+        #     self.viewer.cam.lookat[:] = torso_pos
         
         
 
@@ -296,18 +308,17 @@ class Planner(Node):
             current_time = time.time() - self.traj_time_start
             
             self.data_buffers['theta'].append(current_pos.copy())
-            # self.data_buffers['torque'].append(self.torque.copy())
-            self.data_buffers['torque'].append(np.atleast_1d(np.squeeze(self.torque.copy())))
+            # self.data_buffers['control'].append(self.control.copy())
+            self.data_buffers['control'].append(np.atleast_1d(np.squeeze(self.control.copy())))
             self.data_buffers['cost_cem'].append(cost_cem.copy())
             self.data_buffers['cost_height_cem'].append(cost_height_cem)
-            self.data_buffers['cost_velocity_cem'].append(cost_velocity_cem)
             self.data_buffers['cost_orientation_cem'].append(cost_orientation_cem)
-            self.data_buffers['cost_control_cem'].append(cost_control_cem)
+            self.data_buffers['cost_nominal_cem'].append(cost_nominal_cem)
             self.data_buffers['total_time'].append(current_time)
             self.data_buffers['theta_horizon'].append(theta_horizon.copy())
-            self.data_buffers['torque_horizon'].append(torque_horizon.copy())
-            self.data_buffers['torque_samples'].append(torque_samples.copy())
-            self.data_buffers['torque_filtered'].append(torque_filtered.copy())
+            self.data_buffers['control_horizon'].append(control_horizon.copy())
+            self.data_buffers['control_samples'].append(control_samples.copy())
+            self.data_buffers['control_filtered'].append(control_filtered.copy())
             self.data_buffers['torso_trace_planned'].append(torso_trace_planned.copy())
             self.data_buffers['torso_trace_all'].append(torso_trace_all.copy())
             self.data_buffers['primal_res'].append(primal_res.copy())
@@ -316,7 +327,8 @@ class Planner(Node):
 
         
         
-        self.data.ctrl[self.actuator_ctrl_indices] = self.torque
+        # self.data.ctrl[self.actuator_ctrl_indices] = self.control
+        self.data.ctrl[self.planner.cem.actuator_ctrl_indices] = self.control
         
 
         mujoco.mj_step(self.model, self.data)
@@ -337,8 +349,7 @@ class Planner(Node):
               f'\n| Cost: {np.round(cost_cem[-1], 2)} '
               f'\n| Cost_Height: {np.round(cost_height, 2)} ',
               f'\n| Cost_Orientation: {np.round(cost_orientation, 2)} ', 
-              f'\n| Cost_Velocity: {np.round(cost_velocity, 2)} ', 
-              f'\n| Cost_Control: {np.round(cost_control, 2)} ', flush=True)
+              f'\n| cost_nominal: {np.round(cost_nominal, 2)} ', flush=True)
         
         print("=" * 40)
         time_until_next_step = self.model.opt.timestep - (time.time() - start_time)
@@ -356,17 +367,16 @@ class Planner(Node):
             'batch_size': np.array(self.data_buffers['batch_size']),
             'horizon': np.array(self.data_buffers['horizon']),
             'theta': np.array(self.data_buffers['theta']),
-            'torque': np.array(self.data_buffers['torque']),
+            'control': np.array(self.data_buffers['control']),
             'cost_cem': np.array(self.data_buffers['cost_cem']),
             'cost_height_cem': np.array(self.data_buffers['cost_height_cem']),
             'cost_orientation_cem': np.array(self.data_buffers['cost_orientation_cem']),
-            'cost_velocity_cem': np.array(self.data_buffers['cost_velocity_cem']),
-            'cost_control_cem': np.array(self.data_buffers['cost_control_cem']),
+            'cost_nominal_cem': np.array(self.data_buffers['cost_nominal_cem']),
             'total_time': np.array(self.data_buffers['total_time']),
             'theta_horizon': np.array(self.data_buffers['theta_horizon']),
-            'torque_horizon': np.array(self.data_buffers['torque_horizon']),
-            'torque_samples': np.array(self.data_buffers['torque_samples']),
-            'torque_filtered': np.array(self.data_buffers['torque_filtered']),
+            'control_horizon': np.array(self.data_buffers['control_horizon']),
+            'control_samples': np.array(self.data_buffers['control_samples']),
+            'control_filtered': np.array(self.data_buffers['control_filtered']),
             'torso_trace_planned': np.array(self.data_buffers['torso_trace_planned']),
             'torso_trace_all': np.array(self.data_buffers['torso_trace_all']),
             'primal_res': np.array(self.data_buffers['primal_res']),
@@ -408,16 +418,16 @@ class Planner(Node):
             
     def print_sensor_data(self):
         """Print sensor data similar to your cem_planner example"""
-            
+        
+        self.torso_id = self.model.site("imu_in_torso").id
         # Get sensor values
-        torso_pos = self.get_sensor_value(self.torso_position_sensor)
-        torso_vel = self.get_sensor_value(self.torso_velocity_sensor) 
-        torso_zaxis = self.get_sensor_value(self.torso_zaxis_sensor)
+        torso_quat = self.get_sensor_value(self.orientation_sensor_id)
+        torso_vel = self.get_sensor_value(self.velocity_sensor_id) 
+        # torso_zaxis = self.get_sensor_value(self.torso_zaxis_sensor)
         
         print(f"\n=== MUJOCO SENSORS ===")
-        print(f"Torso Position: {torso_pos}")
+        print(f"Torso Quat: {torso_quat}")
         print(f"Torso Velocity: {torso_vel}")
-        print(f"Torso Z-axis: {torso_zaxis}")
         print("=" * 20)
 
 def main(args=None):
