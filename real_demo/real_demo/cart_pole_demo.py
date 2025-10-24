@@ -308,15 +308,10 @@ class Planner(Node):
             self.data_buffers['xi_samples'].append(xi_samples.copy())
         
         
-        # self.data.ctrl[self.joint_ctrl_indices] = self.force
-
-        # self.data.ctrl[:] = np.zeros(len(self.joint_mask_vel))
-        # self.data.ctrl[self.joint_mask_vel] = self.force
 
         self.data.ctrl[self.actuator_ctrl_indices] = self.force
         
 
-        # print("self.data.qvel", self.data.qvel)
 
         mujoco.mj_step(self.model, self.data)
         
