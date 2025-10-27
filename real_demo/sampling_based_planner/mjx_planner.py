@@ -138,6 +138,8 @@ class cem_planner():
 		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
 
+		self.gamma = 0.98 #Discount factor
+
 		self.model = model
 		self.data = mujoco.MjData(self.model)
 		self.model.opt.timestep = self.t
@@ -464,31 +466,6 @@ class cem_planner():
 
 	
 
-	# @partial(jax.jit, static_argnums=(0,))
-	# def mjx_step(self, mjx_data, thetadot_single):
-	
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(thetadot_single)
-	# 	mjx_data = mjx_data.replace(qvel=qvel)
-		
-	# 	# Step the simulation
-	# 	mjx_data = self.jit_step(self.mjx_model, mjx_data)
-
-	# 	# Get joint positions and end-effector states
-	# 	theta = mjx_data.qpos[self.joint_mask_pos]
-
-	# 	torso_pos = mjx_data.site_xpos[self.torso]
-		
-
-		
-	# 	# Collision detection
-	# 	# collision = mjx_data.contact.dist[self.mask]
-	# 	collision = mjx_data.contact.dist
-
-	# 	return mjx_data, (
-	# 		theta, 
-	# 		torso_pos,
-	# 		collision
-	# 	)
 
 
 	@partial(jax.jit, static_argnums=(0,))
@@ -560,6 +537,8 @@ class cem_planner():
 		
 	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
 
+	# 
+	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_rollout_single_torque(self, mjx_data_current, torques, init_pos, init_vel):
 		# Initialize MJX data with initial position and velocity
@@ -578,56 +557,82 @@ class cem_planner():
 		
 		# 3. Perform the rollout using the torque-based step function
 		# Call self.mjx_step_torque instead of self.mjx_step.
-		mjx_data_final, out = jax.lax.scan(self.mjx_step_torque, mjx_data, torque_single.T, length=self.num)
+		# Define a step function that collects all data including sensor data
+		def step_fn(carry, torque):
+			mjx_data = carry
+			# Use your existing mjx_step_torque function
+			mjx_data_next, (theta, torso_pos, collision) = self.mjx_step_torque(mjx_data, torque)
+			# Get sensor data at this step
+			sensor_data = mjx_data_next.sensordata
+			return mjx_data_next, (theta, torso_pos, collision, sensor_data)
 		
-		theta, torso_pos, collision = out
+		# Perform the rollout using scan to collect all states and sensor data
+		mjx_data_final, out = jax.lax.scan(step_fn, mjx_data, torque_single.T, length=self.num)
+    
+		# mjx_data_final, out = jax.lax.scan(self.mjx_step_torque, mjx_data, torque_single.T, length=self.num)
 
-		sensor_data = mjx_data_final.sensordata
+		theta, torso_pos, collision, sensor_data_all = out
 		
-		return theta.T.flatten(), torso_pos, collision, sensor_data
+		# theta, torso_pos, collision = out
+
+		# sensor_data_final = mjx_data_final.sensordata
+		
+		return theta.T.flatten(), torso_pos, collision, sensor_data_all
 
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cost_single(self, torque_single, sensor_data, cost_weights):
-	
+	  
 
 		# --- Inline sensor extraction ---
-		def get_torso_height(sensor_data) -> jax.Array:
+		def get_torso_height(sensordata) -> jax.Array:
 			"""Get the height of the torso above the ground."""
 			sensor_adr = self.model.sensor_adr[self.torso_position_sensor]
-			return sensor_data[sensor_adr + 2]  # px, py, pz
+			return sensordata[sensor_adr + 2]  # px, py, pz
 
-		def get_torso_velocity(sensor_data) -> jax.Array:
+		def get_torso_velocity(sensordata) -> jax.Array:
 			"""Get the horizontal velocity of the torso."""
 			sensor_adr = self.model.sensor_adr[self.torso_velocity_sensor]
-			return sensor_data[sensor_adr]
+			return sensordata[sensor_adr]
 
-		def get_torso_deviation_from_upright(sensor_data) -> jax.Array:
+		def get_torso_deviation_from_upright(sensordata) -> jax.Array:
 			"""Get the deviation of the torso from the upright position."""
 			sensor_adr = self.model.sensor_adr[self.torso_zaxis_sensor]
-			return sensor_data[sensor_adr + 2] - 1.0
+			return sensordata[sensor_adr + 2] - 1.0
         
-		# jax.debug.print("get_torso_height{}", get_torso_height(sensor_data))
-		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
-		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
+		#sensor_data has shape (num_sensors, num_steps)
+		sensor_data_reshaped = sensor_data.T
 
-		height_cost = jnp.square(
-            get_torso_height(sensor_data) - self.target_height
-        )
+		H = jnp.arange(self.num)
+		discounts = self.gamma ** H
+
+
+		# jax.debug.print("torque_single {}", jnp.shape(torque_single))
+		# jax.debug.print("sensor_data {}", jnp.shape(sensor_data))
+		# jax.debug.print("sensor_data_reshaped {}", jnp.shape(sensor_data_reshaped))
+
+
+		height_cost = jnp.sum(discounts * jnp.square(
+            get_torso_height(sensor_data_reshaped) - self.target_height
+        ))
+
+		# jax.debug.print("height_cost {}", jnp.shape(height_cost))
+
         
-		orientation_cost = jnp.square(
-            get_torso_deviation_from_upright(sensor_data)
-        )
+		orientation_cost = jnp.sum(discounts * jnp.square(
+            get_torso_deviation_from_upright(sensor_data_reshaped)
+        ))
 
-		velocity_cost = jnp.square(
-            get_torso_velocity(sensor_data) - self.target_velocity
-        )
+
+		velocity_cost = jnp.sum(discounts * jnp.square(
+            get_torso_velocity(sensor_data_reshaped) - self.target_velocity
+        ))
 
 		control_cost = jnp.sum(jnp.square(torque_single))
 
         
-		jax.debug.print("torque_single {}", jnp.shape(torque_single))
-		jax.debug.print("sensor_data {}", jnp.shape(sensor_data))
-		jax.debug.print("get_torso_velocity {}", jnp.shape(get_torso_velocity(sensor_data)))
+		# jax.debug.print("height_cost {}", height_cost)
+		# jax.debug.print("orientation_cost {}", orientation_cost)
+		# jax.debug.print("get_torso_velocity {}", jnp.shape(get_torso_velocity(sensor_data)))
         
 
 
@@ -744,6 +749,9 @@ class cem_planner():
 		mjx_data_current = carry[-1]
 
 		theta, torso_pos, collision, sensor_data = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
+
+		# print("sensor_data", np.shape(sensor_data))
+
 		cost_batch, cost_list_batch = self.compute_cost_batch(torque, sensor_data, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)

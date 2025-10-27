@@ -92,10 +92,17 @@ class Planner(Node):
             }
             
 
+        # cost_weights = {
+        #     'height': 20.0,
+		# 	'orientation': 15.0,
+        #     'velocity': 15.0,
+        #     'control': 0.1
+        # }
+
         cost_weights = {
-            'height': 20.0,
-			'orientation': 15.0,
-            'velocity': 15.0,
+            'height': 10.0,
+			'orientation': 3.0,
+            'velocity': 1.0,
             'control': 0.1
         }
 
