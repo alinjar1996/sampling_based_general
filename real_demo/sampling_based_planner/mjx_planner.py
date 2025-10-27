@@ -108,7 +108,7 @@ class cem_planner():
 		self.maxiter_projection = maxiter_projection
 		self.maxiter_cem = maxiter_cem
 
-		self.pos_max = max_joint_control
+		# self.pos_max = max_joint_control
 		self.vel_max = max_joint_dcontrol
 		self.acc_max = max_joint_ddcontrol
 			
@@ -137,6 +137,8 @@ class cem_planner():
 		self.lamda = 0.1
 		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
+
+		self.gamma = 0.98 #Discount factor
 
 		self.model = model
 		self.data = mujoco.MjData(self.model)
@@ -260,7 +262,7 @@ class cem_planner():
 
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_control, in_axes = (None, 0, None, None))
-		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
+		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, 0, 0, None))
 		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
           
 		self.print_info()
@@ -571,10 +573,24 @@ class cem_planner():
 		# collision = mjx_data.contact.dist[self.mask]
 		collision = mjx_data.contact.dist
 
+		# Extract ONLY the specific sensor data you need for cost computation
+
+		# torso_height =  sitexpos[self.torso_id, 2] torso_pos[2]  # z-coordinate of torso
+
+		torso_height = mjx_data.site_xpos[self.torso_id, 2]
+		sensor_adr = self.model.sensor_adr[self.orientation_sensor_id]
+		torso_orientation = mjx_data.sensordata[sensor_adr : sensor_adr + 4]  # quaternion
+		
+		# Get joint positions for nominal cost
+		joint_positions = mjx_data.qpos[7:]  # Adjust index based on your robot structure
+
 		return mjx_data, (
 			theta, 
 			torso_pos,
-			collision
+			collision,
+			torso_height,
+			torso_orientation,
+			joint_positions
 		)
 
 
@@ -594,16 +610,30 @@ class cem_planner():
 		# Note: 'self.num_dof' should likely be replaced by 'self.num_ctrl' or
 		# the dimension of the control space if they are different.
 		control_single = controls.reshape(self.num_dof, self.num)
+
 		
 		# 3. Perform the rollout using the control-based step function
-		# Call self.mjx_step_control instead of self.mjx_step.
-		mjx_data_final, out = jax.lax.scan(self.mjx_step_control, mjx_data, control_single.T, length=self.num)
+		# Call self.mjx_step_control recursively
+		def step_fn(carry, control):
+			mjx_data = carry
+			# Use your existing mjx_step_torque function
+			mjx_data_next, (theta, torso_pos, collision, 
+				            torso_height, torso_orientation, joint_positions) = self.mjx_step_control(mjx_data, control)
+	
+			return mjx_data_next, (theta, torso_pos, collision, torso_height, torso_orientation, joint_positions)
 		
-		theta, torso_pos, collision = out
+		#mjx_data_final, out = jax.lax.scan(self.mjx_step_control, mjx_data, control_single.T, length=self.num)
+		
+		# Perform the rollout using scan to collect all states and sensor data
+		mjx_data_final, out = jax.lax.scan(step_fn, mjx_data, control_single.T, length=self.num)
+		
+		# theta, torso_pos, collision, site_xpos_all, sensor_data_all = out
+
+		theta, torso_pos, collision, torso_height_all, torso_orientation_all, joint_positions_all = out
 
 		# sensor_data = mjx_data_final.sensordata
 		
-		return theta.T.flatten(), torso_pos, collision, mjx_data_final
+		return theta.T.flatten(), torso_pos, collision, torso_height_all, torso_orientation_all, joint_positions_all
 
 
 	
@@ -627,37 +657,39 @@ class cem_planner():
 
 
 	@partial(jax.jit, static_argnums=(0,))
-	def compute_cost_single(self, control_single, mjx_data, cost_weights):
+	def compute_cost_single(self, control_single, torso_height_full_horizon, torso_orientation_full_horizon, joint_positions_full_horizon,  cost_weights):
 	    
-		def _get_torso_height(mjx_data) -> jax.Array:
+		def _get_torso_height(sitexpos) -> jax.Array:
 			"""Get the height of the torso above the ground."""
-			return mjx_data.site_xpos[self.torso_id, 2]
+			return sitexpos[self.torso_id, 2]
 		
-		def _get_torso_orientation(mjx_data) -> jax.Array:
+		def _get_torso_orientation(quat) -> jax.Array:
 			"""Get the rotation from the current torso orientation to upright."""
-			sensor_adr = self.model.sensor_adr[self.orientation_sensor_id]
-			quat = mjx_data.sensordata[sensor_adr : sensor_adr + 4]
+			# sensor_adr = self.model.sensor_adr[self.orientation_sensor_id]
+			# quat = sensordata[sensor_adr : sensor_adr + 4]
 			upright = jnp.array([0.0, 0.0, 1.0])
 			return mjx._src.math.rotate(upright, quat)
 		
-        
-		# jax.debug.print("get_torso_height{}", get_torso_height(sensor_data))
-		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
-		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
-		# jax.debug.print("_get_torso_orientation{}", _get_torso_orientation(mjx_data))
+		H = jnp.arange(self.num)
+		discounts = self.gamma ** H
+		
+		# Vectorize over time dimension (num_steps)
+		get_torso_orientation_batched_over_horizon = jax.vmap(_get_torso_orientation, in_axes=(0,))
+		
+		# Apply rotation for all timesteps → shape (num_steps, 3)
+		torso_dirs = get_torso_orientation_batched_over_horizon(torso_orientation_full_horizon)
 
 		orientation_cost = jnp.sum(
-            # jnp.square(_get_torso_orientation(mjx_data)[:2])
-            jnp.square(_get_torso_orientation(mjx_data))
-        )
-		height_cost = jnp.square(
-            _get_torso_height(mjx_data) - self.target_height
+            # jnp.square(_get_torso_orientation(mjx_data))
+            discounts[:, None] * jnp.square(torso_dirs[:,:2])
         )
 
-		nominal_cost = jnp.sum(jnp.square(mjx_data.qpos[7:] - self.qstand[7:]))
-	
+		height_cost = jnp.sum(discounts* jnp.square(torso_height_full_horizon-self.target_height))
 
-		control_cost = jnp.sum(jnp.square(control_single))
+		# nominal_cost = jnp.sum(jnp.square(mjx_data.qpos[7:] - self.qstand[7:]))
+		nominal_cost = jnp.sum(discounts[:, None] * jnp.square(joint_positions_full_horizon - self.qstand[7:]))
+
+
 
 		cost = (
 			cost_weights['orientation'] * orientation_cost 
@@ -771,8 +803,18 @@ class cem_planner():
 
 		mjx_data_current = carry[-1]
 
-		theta, torso_pos, collision, mjx_data_updated = self.compute_rollout_batch(mjx_data_current, control, init_pos, init_vel)
-		cost_batch, cost_list_batch = self.compute_cost_batch(control, mjx_data_updated, cost_weights)
+		(theta, torso_pos, 
+		collision, torso_height_all, 
+		torso_orientation_all, 
+		joint_positions_all) = self.compute_rollout_batch(mjx_data_current, control, init_pos, init_vel)
+
+		# print("torso_height_all", np.shape(torso_height_all)) # Should be (num_batch, num_steps)
+		# print("torso_orientation_all", np.shape(torso_orientation_all)) # Should be (num_batch, num_steps, 4)
+		# print("joint_positions_all", np.shape(joint_positions_all)) # Should be (num_batch, num_steps, num_dof)
+
+
+		cost_batch, cost_list_batch = self.compute_cost_batch(control, torso_height_all, 
+														torso_orientation_all, joint_positions_all, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
 		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
