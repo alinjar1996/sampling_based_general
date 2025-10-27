@@ -661,8 +661,14 @@ class cem_planner():
 			theta_err = jnp.array([jnp.cos(theta_) - 1, jnp.sin(theta_)])
 			#jax.debug.print("theta_err {}", theta_err)
 			return jnp.sum(discounts * jnp.square(theta_err))
+		
+		# jax.debug.print("theta {}", jnp.shape(theta))
+		jax.debug.print("thetadot {}", jnp.shape(thetadot))
 
 		theta_cost = _distance_to_upright(theta)
+
+		# jax.debug.print("theta_cost {}", theta_cost)
+
 
 		thetadot_cost = jnp.sum(discounts * jnp.square(thetadot))
 
