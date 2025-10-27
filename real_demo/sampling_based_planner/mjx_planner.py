@@ -624,6 +624,13 @@ class cem_planner():
 
 		control_cost = jnp.sum(jnp.square(torque_single))
 
+        
+		jax.debug.print("torque_single {}", jnp.shape(torque_single))
+		jax.debug.print("sensor_data {}", jnp.shape(sensor_data))
+		jax.debug.print("get_torso_velocity {}", jnp.shape(get_torso_velocity(sensor_data)))
+        
+
+
 		cost = (
 			cost_weights['height'] * height_cost + cost_weights['orientation'] * orientation_cost 
 			+ cost_weights['velocity'] * velocity_cost + cost_weights['control']*control_cost
