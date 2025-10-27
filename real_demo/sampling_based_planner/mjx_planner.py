@@ -578,8 +578,6 @@ class cem_planner():
 		)
 
 
-
-		
     
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_rollout_single_control(self, mjx_data_current, controls, init_pos, init_vel):
@@ -646,8 +644,10 @@ class cem_planner():
 		# jax.debug.print("get_torso_height{}", get_torso_height(sensor_data))
 		# jax.debug.print("get_torso_deviation_from_upright{}", get_torso_deviation_from_upright(sensor_data))
 		# jax.debug.print("get_torso_velocity{}", get_torso_velocity(sensor_data))
+		# jax.debug.print("_get_torso_orientation{}", _get_torso_orientation(mjx_data))
 
 		orientation_cost = jnp.sum(
+            # jnp.square(_get_torso_orientation(mjx_data)[:2])
             jnp.square(_get_torso_orientation(mjx_data))
         )
 		height_cost = jnp.square(

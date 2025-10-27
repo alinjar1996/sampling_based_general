@@ -1,3 +1,12 @@
 Thu Oct  2 15:53:14 2025
 WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 3.7000.
 
+Mon Oct 27 12:44:18 2025
+WARNING: Pre-allocated visual geom buffer is full. Increase maxgeom above 20000. Time = 0.2000.
+
+Mon Oct 27 12:44:31 2025
+WARNING: Pre-allocated visual geom buffer is full. Increase maxgeom above 20000. Time = 0.2000.
+
+Mon Oct 27 12:45:09 2025
+WARNING: Pre-allocated visual geom buffer is full. Increase maxgeom above 20000. Time = 0.2000.
+

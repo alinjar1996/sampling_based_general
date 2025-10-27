@@ -46,7 +46,10 @@ class Planner(Node):
 
         # Planner params
         self.num_dof = 29
+        
         self.init_joint_position = np.array([0.0]*self.num_dof)
+
+
         num_batch = self.get_parameter('num_batch').get_parameter_value().integer_value
         num_steps = self.get_parameter('num_steps').get_parameter_value().integer_value
         maxiter_cem = self.get_parameter('maxiter_cem').get_parameter_value().integer_value
@@ -92,9 +95,9 @@ class Planner(Node):
             
 
         cost_weights = {
-            'orientation': 20.0,
-			'height': 15.0,
-            'nominal': 15.0
+            'orientation': 100.0,
+			'height': 100.0,
+            'nominal': 0.1
         }
 
 
@@ -171,6 +174,15 @@ class Planner(Node):
 			if self.joint_mask_ctrl[j]
 		]
 
+        # Modifying intial configuration of Robot
+        full_qpos = self.model.keyframe("stand").qpos
+        initial_pos_data = full_qpos[self.joint_mask_pos] # <--- Use the mask/indices here
+        self.init_joint_position = jnp.asarray(initial_pos_data)
+        # init_pos = init_pos.at[3:7].set(jnp.array([0.7, 0.0, -0.7, 0.0]))
+
+
+        
+
         # print("self.joint_mask_vel", self.joint_mask_vel)
 
 
@@ -184,7 +196,9 @@ class Planner(Node):
         # mujoco.mj_forward(self.model, self.data)
         self.data = mujoco.MjData(self.model)
 
-        
+        #Make initial orientation of robot equal to 90 degree about Y-axis
+        self.data.qpos[3:7] = [0.7, 0.0, -0.7, 0.0]
+
         mujoco.mj_forward(self.model, self.data)
 
         self.data.qpos[self.joint_mask_pos] = self.init_joint_position
