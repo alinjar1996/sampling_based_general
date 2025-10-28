@@ -683,9 +683,11 @@ class cem_planner():
             # jnp.square(_get_torso_orientation(mjx_data))
             discounts[:, None] * jnp.square(torso_dirs[:,:2])
         )
-
+        
+		#→ shape (num_steps,)
 		height_cost = jnp.sum(discounts* jnp.square(torso_height_full_horizon-self.target_height))
-
+        
+		#→ shape (num_steps, num_dof)
 		# nominal_cost = jnp.sum(jnp.square(mjx_data.qpos[7:] - self.qstand[7:]))
 		nominal_cost = jnp.sum(discounts[:, None] * jnp.square(joint_positions_full_horizon - self.qstand[7:]))
 
