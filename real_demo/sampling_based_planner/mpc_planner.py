@@ -19,7 +19,7 @@ class run_cem_planner:
     def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
                  maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=None,
                  max_joint_intcontrol=0.0, max_joint_control=1.0, 
-                 max_joint_dcontrol=1.5, max_joint_ddcontrol=2.0,
+                 max_joint_dcontrol=3.0, max_joint_ddcontrol=6.0,
                  device='cuda', cost_weights=None):
         
         # Initialize parameters
@@ -53,7 +53,7 @@ class run_cem_planner:
         )
         
         # Initialize CEM variables
-        self.cov_coeff_scalar = 1.0
+        self.cov_coeff_scalar = 0.3
         self.xi_mean_single = jnp.zeros(self.cem.nvar_single)
         self.xi_cov_single = self.cov_coeff_scalar*jnp.identity(self.cem.nvar_single)
         self.xi_mean = jnp.tile(self.xi_mean_single, self.cem.num_dof)

@@ -110,6 +110,12 @@ class Planner(Node):
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.model.opt.timestep = self.timestep
 
+        #mj_model.opt.timestep = 0.005 
+        # self.model.opt.iterations = 100 
+        # self.model.opt.ls_iterations = 50 
+        self.model.opt.o_solimp = [0.9, 0.95, 0.001, 0.5, 2]
+        # self.model.opt.enableflags = mujoco.mjtEnableBit.mjENBL_OVERRIDE
+
          # Get sensor ids (similar to your cem_planner example)
                 # Get sensor and site ids
         self.orientation_sensor_id = self.model.sensor("imu_in_torso_quat").id
@@ -229,6 +235,8 @@ class Planner(Node):
         self.viewer.cam.distance = 5.0 
         self.viewer.cam.azimuth = 90.0 
         self.viewer.cam.elevation = -30.0 
+
+ 
 
         # Setup subscribers
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=1)
