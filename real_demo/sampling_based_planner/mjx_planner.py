@@ -50,14 +50,14 @@ class cem_planner():
 		self.tot_time = tot_time
 		tot_time_copy = tot_time.reshape(self.num, 1)
 
-		# self.P = jnp.identity(self.num) # Torque mapping 
-		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
-		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
-		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
+		self.P = jnp.identity(self.num) # Torque mapping 
+		self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
+		self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
+		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
 		
-		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
-		self.Pint = jnp.zeros_like(self.P) 
+		# self.Pint = jnp.zeros_like(self.P) 
 
 		self.P_jax, self.Pdot_jax, self.Pddot_jax = jnp.asarray(self.P), jnp.asarray(self.Pdot), jnp.asarray(self.Pddot)
 		self.Pint_jax = jnp.asarray(self.Pint)
