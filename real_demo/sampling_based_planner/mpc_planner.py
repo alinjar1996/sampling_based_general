@@ -1,7 +1,7 @@
 from sampling_based_planner.mjx_planner import cem_planner
 from sampling_based_planner.quat_math import quaternion_distance, quaternion_multiply, rotation_quaternion
-from sampling_based_planner.Simple_MLP.mlp_singledof import MLP, MLPProjectionFilter
 from ik_based_planner.ik_solver import InverseKinematicsSolver
+from MLP_projection.mlp_biped_torque import MLP, MLPProjectionFilter
 
 import mujoco
 from mujoco import viewer
@@ -13,14 +13,21 @@ import torch
 import contextlib
 from io import StringIO
 
+import os
+from ament_index_python.packages import get_package_share_directory
+
+
+
 
 
 class run_cem_planner:
-    def __init__(self, model, data, num_dof=12, num_batch=500, num_steps=20, 
-                 maxiter_cem=1, maxiter_projection=5, num_elite=0.05, timestep=None,
+    def __init__(self, model, data, num_dof=None, num_batch=None, num_steps=None, 
+                 maxiter_cem=None, maxiter_projection=None, num_elite=None, timestep=None,
                  max_joint_inttorque=0.0, max_joint_torque=1.0, 
                  max_joint_dtorque=1.5, max_joint_ddtorque=2.0,
                  device='cuda', cost_weights=None):
+        
+        
         
         # Initialize parameters
         self.model = model
@@ -33,6 +40,10 @@ class run_cem_planner:
         self.num_elite = num_elite
         self.timestep = timestep
         self.device = device
+
+        self.max_joint_torque = max_joint_torque
+        self.max_joint_dtorque = max_joint_dtorque
+        self.max_joint_ddtorque = max_joint_ddtorque
 
         self.cost_weights = cost_weights
 
@@ -62,13 +73,59 @@ class run_cem_planner:
         self.s_init = jnp.zeros((num_batch, self.cem.num_total_constraints))
         self.key = jax.random.PRNGKey(0)
         
+        self.inference = True
 
+
+        # Get absolute path to the package share folder
+        package_share = get_package_share_directory('real_demo')
+
+        # Build path to your weights
+        self.weight_path = os.path.join(
+            package_share,
+            'mlp_proj_training_weights',
+            f'mlp_biped_2000_100_1_{self.cem.num_batch}.pth'
+        )
+
+        print(f"[INFO] Loading MLP weights from: {self.weight_path}")
+
+        # self.inp = jnp.hstack([self.cem.compute_xi_samples])
+        # Initialize MLP if inference is enabled
+        if self.inference:
+            self.mlp_model = self._load_mlp_projection_model((num_steps+1)*num_dof, maxiter_projection, self.weight_path)
         
-        # # Get TCP references for both arms
-        # self.tcp_id_0 = model.site(name="tcp_0").id
-        # self.hande_id_0 = model.body(name="hande_0").id
-        # self.tcp_id_1 = model.site(name="tcp_1").id
-        # self.hande_id_1 = model.body(name="hande_1").id
+    
+    def _load_mlp_projection_model(self, num_feature, maxiter_projection, weight_path):
+        """Load the MLP projection model for inference"""
+        enc_inp_dim = num_feature
+        mlp_inp_dim = enc_inp_dim
+        hidden_dim = 1024
+        mlp_out_dim = 2 * self.cem.nvar
+
+        mlp = MLP(mlp_inp_dim, hidden_dim, mlp_out_dim)
+
+        # model = MLPProjectionFilter(mlp, P, Pdot, Pddot, num, num_batch_train, inp_mean, inp_std, t_fin).to(device)
+
+        with contextlib.redirect_stdout(StringIO()):
+            model = MLPProjectionFilter(
+                mlp=mlp,
+                P = torch.tensor(np.array(self.cem.P), dtype=torch.float32),
+                Pdot = torch.tensor(np.array(self.cem.Pdot), dtype=torch.float32),
+                Pddot = torch.tensor(np.array(self.cem.Pddot), dtype=torch.float32),
+                num = self.num_steps,
+                num_batch = self.cem.num_batch,
+                max_joint_torque = self.max_joint_torque,
+                max_joint_dtorque = self.max_joint_dtorque,
+                max_joint_ddtorque = self.max_joint_ddtorque,
+                t_fin = self.timestep*self.num_steps,
+                maxiter_projection=self.cem.maxiter_projection,
+            ).to(self.device)
+
+            
+    
+            model.load_state_dict(torch.load(weight_path, weights_only=True))
+            model.eval()
+        
+        return model
 
         
     def repair_cov(self, C):
@@ -128,6 +185,36 @@ class run_cem_planner:
 
         # print("current_pos", current_pos.shape)
         # print("current_vel", current_vel.shape)
+
+        if self.inference:
+            xi_projected_nn_output = []
+            lamda_init_nn_output = []
+            s_init_nn_output = []
+
+            init_control = current_torque
+            # init_control_repeated = np.tile(init_control, (self.cem.num_batch,1))
+            init_control_repeated = np.broadcast_to(init_control, (self.cem.num_batch, init_control.size))
+
+
+            inp = np.hstack((init_control_repeated, self.xi_samples))
+            inp_torch = torch.tensor(inp).float().to(self.device)
+
+            inp_mean = inp.mean()
+            inp_std = inp.std()
+            inp_norm = (inp - inp_mean) / inp_std
+            inp_norm_torch = torch.tensor(inp_norm).float().to(self.device)
+
+            neural_output_batch = self.mlp_model.mlp(inp_norm_torch)
+
+
+            lamda_init_nn_output = neural_output_batch[:, 0:self.cem.nvar].to(self.device)  
+            xi_samples_nn_output = neural_output_batch[:, self.cem.nvar:2*self.cem.nvar].to(self.device)
+
+            self.lamda_init = np.array(lamda_init_nn_output.cpu().detach().numpy())
+            self.xi_samples = np.array(xi_samples_nn_output.cpu().detach().numpy())
+            
+            
+
 
         # CEM computation
         cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
