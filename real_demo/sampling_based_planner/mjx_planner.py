@@ -50,14 +50,14 @@ class cem_planner():
 		self.tot_time = tot_time
 		tot_time_copy = tot_time.reshape(self.num, 1)
 
-		self.P = jnp.identity(self.num) # Torque mapping 
-		self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
-		self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
-		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
+		# self.P = jnp.identity(self.num) # Torque mapping 
+		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
+		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
+		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
 		
-		# self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
-		# self.Pint = jnp.zeros_like(self.P) 
+		self.Pint = jnp.zeros_like(self.P) 
 
 		self.P_jax, self.Pdot_jax, self.Pddot_jax = jnp.asarray(self.P), jnp.asarray(self.Pdot), jnp.asarray(self.Pddot)
 		self.Pint_jax = jnp.asarray(self.Pint)
@@ -70,21 +70,17 @@ class cem_planner():
 
 		self.A_projection = jnp.identity(self.nvar)
 
-		A_torque_ineq, A_torque = self.get_A_torque()
+		A_torque_ineq = self.get_A_torque()
 		self.A_torque_ineq = jnp.asarray(A_torque_ineq) 
-		self.A_torque = jnp.asarray(A_torque)
 
-		A_dtorque_ineq, A_dtorque = self.get_A_dtorque()
+		A_dtorque_ineq = self.get_A_dtorque()
 		self.A_dtorque_ineq = jnp.asarray(A_dtorque_ineq) 
-		self.A_dtorque = jnp.asarray(A_dtorque)
 
-		A_ddtorque_ineq, A_ddtorque = self.get_A_ddtorque()
+		A_ddtorque_ineq = self.get_A_ddtorque()
 		self.A_ddtorque_ineq = jnp.asarray(A_ddtorque_ineq)
-		self.A_ddtorque = jnp.asarray(A_ddtorque)
   
-		A_int_torque_ineq, A_int_torque = self.get_A_int_torque()
+		A_int_torque_ineq = self.get_A_int_torque()
 		self.A_int_torque_ineq = jnp.asarray(A_int_torque_ineq) 
-		self.A_int_torque = jnp.asarray(A_int_torque)
 
 		# Combined control matrix (like A_control in )
 		self.A_control = jnp.vstack((
@@ -153,7 +149,6 @@ class cem_planner():
 		self.alpha_cov = 0.6
 
 		self.lamda = 0.1
-		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
 
 		self.gamma = 0.98 #Discount factor
@@ -297,22 +292,22 @@ class cem_planner():
 	def get_A_int_torque(self):
 		A_int_torque = np.vstack(( self.Pint, -self.Pint))
 		A_int_torque_ineq = np.kron(np.identity(self.num_dof), A_int_torque )
-		return A_int_torque_ineq, A_int_torque
+		return A_int_torque_ineq
 	
 	def get_A_torque(self):
 		A_torque = np.vstack(( self.P, -self.P     ))
 		A_torque_ineq = np.kron(np.identity(self.num_dof), A_torque )
-		return A_torque_ineq, A_torque
+		return A_torque_ineq
 
 	def get_A_dtorque(self):
 		A_dtorque = np.vstack(( self.Pdot, -self.Pdot  ))
 		A_dtorque_ineq = np.kron(np.identity(self.num_dof), A_dtorque )
-		return A_dtorque_ineq, A_dtorque
+		return A_dtorque_ineq
 	
 	def get_A_ddtorque(self):
 		A_ddtorque = np.vstack(( self.Pddot, -self.Pddot  ))
 		A_ddtorque_ineq = np.kron(np.identity(self.num_dof), A_ddtorque )
-		return A_ddtorque_ineq, A_ddtorque
+		return A_ddtorque_ineq
 	
 	def get_A_eq(self):
 		return np.kron(np.identity(self.num_dof), self.P[0])
@@ -633,7 +628,7 @@ class cem_planner():
 		prods = d * jnp.outer(term_1,term_2)
 		return prods	
 	
-	@partial(jax.jit, static_argnums=(0,))
+	@partial(jax.jit, static_argnums=(0,))  
 	def repair_cov(self, C):
 		epsilon = 1e-5
 		eigenvalues, eigenvectors = jnp.linalg.eigh(C)
@@ -704,9 +699,9 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		torque = jnp.dot(self.A_torque, xi_filtered.T).T
+		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		# torque = jnp.dot(self.A_torque, xi_samples.T).T
+		torque = jnp.dot(self.A_torque, xi_samples.T).T
 
 		mjx_data_current = carry[-1]
 
