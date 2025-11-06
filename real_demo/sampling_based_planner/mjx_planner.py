@@ -2,6 +2,8 @@ import os
 import sys
 from ament_index_python.packages import get_package_share_directory
 
+from math_utils.qp_jax_general import QP
+
 
 xla_flags = os.environ.get('XLA_FLAGS', '')
 xla_flags += ' --xla_gpu_triton_gemm_any=True'
@@ -43,7 +45,6 @@ class cem_planner():
 		self.num_elite = num_elite
 
 		self.t_fin = self.num*self.t
-		# self.init_joint_position = np.array([1.5, -1.8, 1.75, -1.25, -1.6, 0, -1.5, -1.8, 1.75, -1.25, -1.6, 0])
 		self.init_joint_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 		
 		tot_time = np.linspace(0, self.t_fin, self.num)
@@ -247,11 +248,15 @@ class cem_planner():
 
 		self.torso = self.model.site(name="torso_site").id
 
+		self.qp = QP(num_batch=self.num_batch,num_dof=self.num_dof,nvar=self.nvar,
+			        num_total_constraints=self.num_total_constraints, rho_ineq=self.rho_ineq,
+					A_projection=self.A_projection, A_control=self.A_control, A_eq=self.A_eq,
+					b_control = self.b_control, maxiter_projection=self.maxiter_projection)
+
 
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
-		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
           
 		self.print_info()
 
@@ -311,118 +316,7 @@ class cem_planner():
 	
 	def get_A_eq(self):
 		return np.kron(np.identity(self.num_dof), self.P[0])
-
 	
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_boundary_vec_single(self, state_term):
-		
-		num_eq_constraint = 1 #int(jnp.shape(state_term)[0])
-		b_eq_term = state_term.reshape( num_eq_constraint,self.num_dof).T
-		b_eq_term = b_eq_term.reshape(num_eq_constraint*self.num_dof)
-
-		return b_eq_term
-	
-
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_feasible_control(self, lamda_init, s_init, 
-										 b_eq_term, xi_samples, 
-										 init_pos):
-		
-	
-		
-		
-
-		# Augmented bounds with slack variables
-		b_control_aug = self.b_control - s_init
-
-
-		# Cost matrix
-		cost = (
-			jnp.dot(self.A_projection.T, self.A_projection) +
-			self.rho_ineq * jnp.dot(self.A_control.T, self.A_control)
-		)
-
-		# Linear cost term
-		lincost = (
-			-lamda_init -
-			jnp.dot(self.A_projection.T, xi_samples.T).T -
-			self.rho_ineq * jnp.dot(self.A_control.T, b_control_aug.T).T
-		)
-
-		# KKT system matrix
-		cost_mat = jnp.vstack((
-			jnp.hstack((cost, self.A_eq.T)),
-			jnp.hstack((self.A_eq, jnp.zeros((self.A_eq.shape[0], self.A_eq.shape[0]))))
-		))
-
-		
-		# Solve KKT system
-		sol = jnp.linalg.solve(cost_mat, jnp.hstack((-lincost, b_eq_term)).T).T
-
-		# Extract primal solution
-		xi_projected = sol[:, :self.nvar]
-
-		# Update slack variables
-		s = jnp.maximum(
-			jnp.zeros((self.num_batch, self.num_total_constraints)),
-			-jnp.dot(self.A_control, xi_projected.T).T + self.b_control
-		)
-
-		# Compute residual
-		res_vec = jnp.dot(self.A_control, xi_projected.T).T - self.b_control + s
-		res_norm = jnp.linalg.norm(res_vec, axis=1)
-		
-		lamda = lamda_init - self.rho_ineq * jnp.dot(self.A_control.T, res_vec.T).T
-
-
-
-		# lamda = lamda_init - self.rho_ineq * jnp.dot(self.A_control.T, res_vec.T).T - mu*g_grads_filt
-
-		return xi_projected, s, res_norm, lamda
-	
-
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_projection(self, xi_samples, state_term, lamda_init, 
-						   s_init, init_pos):
-		
-		b_eq_term = self.compute_boundary_vec_batch(state_term)  
-
-		xi_projected_init = xi_samples
-
-		def lax_custom_projection(carry, idx):
-			_, lamda, s = carry
-			lamda_prev, s_prev = lamda, s
-			
-			primal_sol, s, res_projection, lamda = self.compute_feasible_control(lamda, 
-																		s, b_eq_term, xi_samples, 
-																		init_pos)
-			
-			primal_residual = res_projection
-			fixed_point_residual = (
-				jnp.linalg.norm(lamda_prev - lamda, axis=1) +
-				jnp.linalg.norm(s_prev - s, axis=1)
-			)
-			return (primal_sol, lamda, s), (primal_residual, fixed_point_residual)
-
-		carry_init = (xi_projected_init, lamda_init, s_init)
-
-
-		carry_final, res_tot = jax.lax.scan(
-			lax_custom_projection,
-			carry_init,
-			jnp.arange(self.maxiter_projection)
-		)
-
-		primal_sol, lamda, s = carry_final
-		primal_residuals, fixed_point_residuals = res_tot
-
-		primal_residuals = jnp.stack(primal_residuals)
-		fixed_point_residuals = jnp.stack(fixed_point_residuals)
-
-		return primal_sol, primal_residuals, fixed_point_residuals
-
-	
-
 
 
 	@partial(jax.jit, static_argnums=(0,))
@@ -668,22 +562,8 @@ class cem_planner():
 		xi_mean_prev = xi_mean 
 		xi_cov_prev = xi_cov
 
-		# xi_samples_reshaped = xi_samples.reshape(self.num_batch, self.num_dof, self.num)
-		# xi_samples_batched_over_dof = jnp.transpose(xi_samples_reshaped, (1, 0, 2)) # shape: (DoF, B, num)
-
-		# state_term_reshaped = state_term.reshape(self.num_batch, self.num_dof, 1)
-		# state_term_batched_over_dof = jnp.transpose(state_term_reshaped, (1, 0, 2)) #Shape: (DoF, B, 1)
-
-		# lamda_init_reshaped = lamda_init.reshape(self.num_batch, self.num_dof, self.num)
-		# lamda_init_batched_over_dof = jnp.transpose(lamda_init_reshaped, (1, 0, 2)) # shape: (DoF, B, num)
-
-		# s_init_reshaped = s_init.reshape(self.num_batch, self.num_dof, self.num_total_constraints_per_dof )
-		# s_init_batched_over_dof = jnp.transpose(s_init_reshaped, (1, 0, 2)) # shape: (DoF, B, num_total_constraints_per_dof)
-
-
-		
         # Pass all arguments as positional arguments; not keyword arguments
-		xi_filtered, primal_residuals, fixed_point_residuals = self.compute_projection(
+		xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
 			                                                     xi_samples, 
 														         state_term, 
 																 lamda_init, 

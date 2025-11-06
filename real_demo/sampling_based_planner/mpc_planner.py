@@ -73,7 +73,7 @@ class run_cem_planner:
         self.s_init = jnp.zeros((num_batch, self.cem.num_total_constraints))
         self.key = jax.random.PRNGKey(0)
         
-        self.inference = True
+        self.inference = False
 
 
         # Get absolute path to the package share folder
@@ -206,12 +206,15 @@ class run_cem_planner:
 
             neural_output_batch = self.mlp_model.mlp(inp_norm_torch)
 
+            #xi_samples_nn_output = 
+            xi_samples_nn_output = neural_output_batch[:, 0:self.cem.nvar].to(self.device)  
+            lamda_init_nn_output = neural_output_batch[:, self.cem.nvar:2*self.cem.nvar].to(self.device)  
+            s_init_nn_output = neural_output_batch[:, 2*self.cem.nvar:2*self.cem.nvar+self.cem.num_total_constraints].to(self.device)
 
-            lamda_init_nn_output = neural_output_batch[:, 0:self.cem.nvar].to(self.device)  
-            xi_samples_nn_output = neural_output_batch[:, self.cem.nvar:2*self.cem.nvar].to(self.device)
-
-            self.lamda_init = np.array(lamda_init_nn_output.cpu().detach().numpy())
             self.xi_samples = np.array(xi_samples_nn_output.cpu().detach().numpy())
+            self.lamda_init = np.array(lamda_init_nn_output.cpu().detach().numpy())
+            self.s_init = np.array(s_init_nn_output.cpu().detach().numpy())
+
             
             
 
