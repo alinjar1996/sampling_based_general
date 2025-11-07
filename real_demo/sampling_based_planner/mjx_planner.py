@@ -26,6 +26,7 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 from math_utils.bernstein_coeff_ordern_arbitinterval import bernstein_coeff_ordern_new
+from math_utils.qp_jax_general import QP
 
 
 class cem_planner():
@@ -251,11 +252,14 @@ class cem_planner():
 
 		self.tip = self.model.site(name="tip").id
 
+		self.qp = QP(num_batch=self.num_batch,num_dof=self.num_dof,nvar=self.nvar,
+			num_total_constraints=self.num_total_constraints, rho_ineq=self.rho_ineq,
+			A_projection=self.A_projection, A_control=self.A_control, A_eq=self.A_eq,
+			b_control = self.b_control, maxiter_projection=self.maxiter_projection)
 
-		self.compute_dynamics_rollout_batch = jax.vmap(self.compute_dynamics_rollout_single,in_axes=(None, 0, None, None))  # batch over torques (axis 0)
+
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, 0, None))
-		self.compute_boundary_vec_batch = (jax.vmap(self.compute_boundary_vec_single, in_axes = (0)  )) # vmap parrallelization takes place over first axis
           
 		self.print_info()
 
@@ -317,142 +321,7 @@ class cem_planner():
 	
 	def get_A_eq(self):
 		return np.kron(np.identity(self.num_dof), self.P[0])
-
 	
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_boundary_vec_single(self, state_term):
-		
-		num_eq_constraint = 1 #int(jnp.shape(state_term)[0])
-		b_eq_term = state_term.reshape( num_eq_constraint,self.num_dof).T
-		b_eq_term = b_eq_term.reshape(num_eq_constraint*self.num_dof)
-
-		return b_eq_term
-	
-
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_feasible_control(self, lamda_init, s_init, 
-										 b_eq_term, xi_samples, 
-										 init_pos):
-		
-	
-
-
-		# Augmented bounds with slack variables
-		b_control_aug = self.b_control - s_init
-
-
-		# Cost matrix
-		cost = (
-			jnp.dot(self.A_projection.T, self.A_projection) +
-			self.rho_ineq * jnp.dot(self.A_control.T, self.A_control)
-		)
-
-		# Linear cost term
-		lincost = (
-			-lamda_init -
-			jnp.dot(self.A_projection.T, xi_samples.T).T -
-			self.rho_ineq * jnp.dot(self.A_control.T, b_control_aug.T).T
-		)
-
-		# KKT system matrix
-		cost_mat = jnp.vstack((
-			jnp.hstack((cost, self.A_eq.T)),
-			jnp.hstack((self.A_eq, jnp.zeros((self.A_eq.shape[0], self.A_eq.shape[0]))))
-		))
-
-		
-		# Solve KKT system
-		sol = jnp.linalg.solve(cost_mat, jnp.hstack((-lincost, b_eq_term)).T).T
-
-		# Extract primal solution
-		xi_projected = sol[:, :self.nvar]
-
-		# Update slack variables
-		s = jnp.maximum(
-			jnp.zeros((self.num_batch, self.num_total_constraints)),
-			-jnp.dot(self.A_control, xi_projected.T).T + self.b_control
-		)
-
-		# Compute residual
-		res_vec = jnp.dot(self.A_control, xi_projected.T).T - self.b_control + s
-		res_norm = jnp.linalg.norm(res_vec, axis=1)
-		
-		lamda = lamda_init - self.rho_ineq * jnp.dot(self.A_control.T, res_vec.T).T
-
-
-
-		# lamda = lamda_init - self.rho_ineq * jnp.dot(self.A_control.T, res_vec.T).T - mu*g_grads_filt
-
-		return xi_projected, s, res_norm, lamda
-	
-
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_projection(self, xi_samples, state_term, lamda_init, 
-						   s_init, init_pos):
-		
-		b_eq_term = self.compute_boundary_vec_batch(state_term)  
-
-		xi_projected_init = xi_samples
-
-		def lax_custom_projection(carry, idx):
-			_, lamda, s = carry
-			lamda_prev, s_prev = lamda, s
-			
-			primal_sol, s, res_projection, lamda = self.compute_feasible_control(lamda, 
-																		s, b_eq_term, xi_samples, 
-																		init_pos)
-			
-			primal_residual = res_projection
-			fixed_point_residual = (
-				jnp.linalg.norm(lamda_prev - lamda, axis=1) +
-				jnp.linalg.norm(s_prev - s, axis=1)
-			)
-			return (primal_sol, lamda, s), (primal_residual, fixed_point_residual)
-
-		carry_init = (xi_projected_init, lamda_init, s_init)
-
-
-		carry_final, res_tot = jax.lax.scan(
-			lax_custom_projection,
-			carry_init,
-			jnp.arange(self.maxiter_projection)
-		)
-
-		primal_sol, lamda, s = carry_final
-		primal_residuals, fixed_point_residuals = res_tot
-
-		primal_residuals = jnp.stack(primal_residuals)
-		fixed_point_residuals = jnp.stack(fixed_point_residuals)
-
-		return primal_sol, primal_residuals, fixed_point_residuals
-
-	
-
-	# @partial(jax.jit, static_argnums=(0,))
-	# def mjx_step(self, mjx_data, thetadot_single):
-	
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(thetadot_single)
-	# 	mjx_data = mjx_data.replace(qvel=qvel)
-		
-	# 	# Step the simulation
-	# 	mjx_data = self.jit_step(self.mjx_model, mjx_data)
-
-	# 	# Get joint positions and end-effector states
-	# 	theta = mjx_data.qpos[self.joint_mask_pos]
-
-	# 	torso_pos = mjx_data.site_xpos[self.torso]
-		
-
-		
-	# 	# Collision detection
-	# 	# collision = mjx_data.contact.dist[self.mask]
-	# 	collision = mjx_data.contact.dist
-
-	# 	return mjx_data, (
-	# 		theta, 
-	# 		torso_pos,
-	# 		collision
-	# 	)
 
 
 	@partial(jax.jit, static_argnums=(0,))
@@ -550,95 +419,6 @@ class cem_planner():
 		
 		return theta.T.flatten(), thetadot.T.flatten(), tip_pos
 	
-
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_dynamics_single_step(self, mjx_data_current, torques, init_pos, init_vel):
-		"""
-		Analytical (pendulum-like) torque-based rollout — JAX version (no clipping).
-
-		Args:
-			mjx_data_current: unused placeholder (for API consistency)
-			torques: control inputs (shape [num_dof, num] or [num_dof])
-			init_pos: initial joint positions
-			init_vel: initial joint velocities
-
-		Returns:
-			theta, thetadot, tip_pos (X, 0, Z)
-		"""
-		# Interpret init_pos and init_vel as angular position and velocity
-		th = init_pos
-		thdot = init_vel
-
-		# Constants
-		g = 10.0
-		m = 1.0
-		l = 1.0
-		dt = self.t
-
-		# Handle single or multi-step torque inputs
-		u = torques
-		if u.ndim > 1:
-			u = u[:, 0]  # take first column if multiple timesteps
-		u = u.reshape(-1, 1)
-
-		# Analytical dynamics update (explicit Euler)
-		newthdot = thdot + (-3 * g / (2 * l) * jnp.sin(th + jnp.pi) + 3.0 / (m * l**2) * u) * dt
-		newth = th + newthdot * dt
-
-		# reshape to match input shapes (important for lax.scan)
-		newth = jnp.reshape(newth, th.shape)
-		newthdot = jnp.reshape(newthdot, thdot.shape)
-
-		# Compute tip position in (X, 0, Z)
-		tip_x = -l * jnp.sin(newth)
-		tip_y = jnp.zeros_like(tip_x)
-		tip_z = -l * jnp.cos(newth)
-		tip_pos = jnp.concatenate([tip_x, tip_y, tip_z], axis=-1)
-
-		base_pos = jnp.array([0.0, 0.0, 1.5])
-		tip_pos = tip_pos + base_pos
-
-		return newth, newthdot, tip_pos
-	
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_dynamics_rollout_single(self, mjx_data_current, torques, init_pos, init_vel):
-		"""
-		Multi-step analytical (pendulum-like) dynamics rollout — JAX version (no clipping).
-
-		Args:
-			mjx_data_current: unused placeholder (for API consistency)
-			torques: control inputs (shape [num_dof, num])
-			init_pos: initial joint positions
-			init_vel: initial joint velocities
-
-		Returns:
-			theta_seq: [num, num_dof]
-			thetadot_seq: [num, num_dof]
-			tip_pos_seq: [num, *3] (X, 0, Z)
-		"""
-
-		def step_fn(carry, torque_t):
-			th, thdot = carry
-			newth, newthdot, tip_pos = self.compute_dynamics_single_step(
-				mjx_data_current, torque_t, th, thdot
-			)
-			new_carry = (newth, newthdot)
-			return new_carry, (newth, newthdot, tip_pos)
-
-		# Transpose torques to iterate over time dimension
-		# Expected shape: (num_dof, num) → (num, num_dof)
-		torques_T = torques.T
-
-		# Roll out dynamics for self.num steps
-		(_, _), (theta_seq, thetadot_seq, tip_pos_seq) = jax.lax.scan(
-			step_fn,
-			(init_pos, init_vel),
-			torques_T,
-			length=self.num
-		)
-
-		return theta_seq.flatten(), thetadot_seq.flatten(), tip_pos_seq
-
 
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cost_single(self, torque_single, theta, thetadot, cost_weights):
@@ -769,7 +549,7 @@ class cem_planner():
 
 		
         # Pass all arguments as positional arguments; not keyword arguments
-		xi_filtered, primal_residuals, fixed_point_residuals = self.compute_projection(
+		xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
 			                                                     xi_samples, 
 														         state_term, 
 																 lamda_init, 
@@ -800,7 +580,6 @@ class cem_planner():
 		mjx_data_current = carry[-1]
 
 		theta, thetadot, tip_pos = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
-		# theta, thetadot, tip_pos = self.compute_dynamics_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
 		cost_batch, cost_list_batch = self.compute_cost_batch(torque, theta, thetadot, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
