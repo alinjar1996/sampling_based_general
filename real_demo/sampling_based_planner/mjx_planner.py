@@ -374,38 +374,7 @@ class cem_planner():
 	
 
 
-	# @partial(jax.jit, static_argnums=(0,))
-	# def compute_rollout_single(self, thetadot, init_pos, init_vel):
 
-	# 	mjx_data = self.mjx_data
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(init_vel)
-	# 	qpos = mjx_data.qpos.at[self.joint_mask_pos].set(init_pos)
-
-	# 	mjx_data = mjx_data.replace(qvel=qvel, qpos=qpos)
-
-	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
-	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
-	# 	theta, torso_pos, collision = out
-	# 	#Sensor data
-	# 	sensor_data = mjx_data_final.sensordata
-
-	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
-
-	# @partial(jax.jit, static_argnums=(0,))
-	# def compute_rollout_single(self, mjx_data_current, thetadot, init_pos, init_vel):
-	# 	# Use the passed-in current state instead of self.mjx_data
-	# 	# mjx_data_current = self.mjx_data
-	# 	qvel = mjx_data_current.qvel.at[self.joint_mask_vel].set(init_vel)
-	# 	qpos = mjx_data_current.qpos.at[self.joint_mask_pos].set(init_pos)
-		
-	# 	mjx_data = mjx_data_current.replace(qvel=qvel, qpos=qpos)
-		
-	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
-	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
-	# 	theta, torso_pos, collision = out
-	# 	sensor_data = mjx_data_final.sensordata
-		
-	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
 
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_rollout_single_force(self, mjx_data_current, forces, init_pos, init_vel):
