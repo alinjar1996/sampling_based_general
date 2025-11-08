@@ -165,7 +165,6 @@ class cem_planner():
 		self.alpha_cov = 0.6
 
 		self.lamda = 0.1
-		self.g = 10
 		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
 
 		self.gamma = 0.99 #Discount factor for reward
@@ -318,17 +317,6 @@ class cem_planner():
 	
 	def get_A_eq(self):
 		return np.kron(np.identity(self.num_dof), self.P[0])
-
-	
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_boundary_vec_single(self, state_term):
-		
-		num_eq_constraint = 1 #int(jnp.shape(state_term)[0])
-		b_eq_term = state_term.reshape( num_eq_constraint,self.num_dof).T
-		b_eq_term = b_eq_term.reshape(num_eq_constraint*self.num_dof)
-
-		return b_eq_term
-	
 
 
 	@partial(jax.jit, static_argnums=(0,))
