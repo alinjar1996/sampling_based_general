@@ -161,7 +161,7 @@ class run_cem_planner:
             self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.cov_coeff_scalar*jnp.identity(self.cem.nvar_single))  
         
         # Generate samples
-        self.xi_samples, self.key = self.cem.compute_xi_samples(self.key, self.xi_mean, self.xi_cov)
+        self.xi_samples, self.key = self.cem.sampling.compute_xi_samples(self.key, self.xi_mean, self.xi_cov)
 
         # self.data = mujoco.MjData(self.model)
         # current_mjx_data = mujoco.mjx.put_data(self.model, self.data)
