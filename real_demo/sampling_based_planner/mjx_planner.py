@@ -16,6 +16,8 @@ import mujoco.mjx as mjx
 import jax
 import jax.numpy as jnp
 
+
+
 # Get the folder containing this script
 current_dir = os.path.dirname(os.path.abspath(__file__))  # if in a script
 # current_dir = os.getcwd()  # if in Jupyter notebook
@@ -27,6 +29,7 @@ if parent_dir not in sys.path:
 
 from math_utils.bernstein_coeff_ordern_arbitinterval import bernstein_coeff_ordern_new
 from math_utils.qp_jax_general import QP
+from math_utils.sampling import SAMPLING
 
 
 class cem_planner():
@@ -157,15 +160,11 @@ class cem_planner():
 
 		self.b_control = jnp.hstack((self.b_force, self.b_dforce, self.b_ddforce))
 
-		self.ellite_num = int(self.num_elite*self.num_batch)
-
-
 
 		self.alpha_mean = 0.6
 		self.alpha_cov = 0.6
 
 		self.lamda = 0.1
-		self.vec_product = jax.jit(jax.vmap(self.comp_prod, 0, out_axes=(0)))
 
 		self.gamma = 0.99 #Discount factor for reward
 
@@ -252,6 +251,9 @@ class cem_planner():
 			num_total_constraints=self.num_total_constraints, rho_ineq=self.rho_ineq,
 			A_projection=self.A_projection, A_control=self.A_control, A_eq=self.A_eq,
 			b_control = self.b_control, maxiter_projection=self.maxiter_projection)
+		
+		self.sampling = SAMPLING(num_batch=self.num_batch, nvar=self.nvar, lamda=self.lamda,
+						   num_elite=self.num_elite, alpha_mean=self.alpha_mean, alpha_cov=self.alpha_cov)
 
 
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_force, in_axes = (None, 0, None, None))
@@ -416,8 +418,6 @@ class cem_planner():
 			#jax.debug.print("theta_err {}", theta_err)
 			return jnp.sum(discounts * jnp.square(theta_err))
 		
-		jax.debug.print("joint_pos {}", jnp.shape(joint_pos))
-		jax.debug.print("joint_vel {}", jnp.shape(joint_vel))
 
 		theta_cost = _distance_to_upright(joint_pos[:,1])
 
@@ -443,60 +443,7 @@ class cem_planner():
 		])
 
 		return cost, cost_list
-	
-	@partial(jax.jit, static_argnums=(0, ))
-	def compute_ellite_samples(self, cost_batch, xi_filtered):
-		idx_ellite = jnp.argsort(cost_batch)
-		cost_ellite = cost_batch[idx_ellite[0:self.ellite_num]]
-		xi_ellite = xi_filtered[idx_ellite[0:self.ellite_num]]
-		return xi_ellite, idx_ellite, cost_ellite
-	
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_xi_samples(self, key, xi_mean, xi_cov ):
-		key, subkey = jax.random.split(key)
-		# xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov+0.009*jnp.identity(self.nvar), (self.num_batch, ))
-		xi_samples = jax.random.multivariate_normal(key, xi_mean, xi_cov, (self.num_batch, ))
-		xi_samples = jnp.clip(xi_samples, a_min=-1.0, a_max=1.0)
-		return xi_samples, key
-	
-	@partial(jax.jit, static_argnums=(0,))
-	def comp_prod(self, diffs, d ):
-		term_1 = jnp.expand_dims(diffs, axis = 1)
-		term_2 = jnp.expand_dims(diffs, axis = 0)
-		prods = d * jnp.outer(term_1,term_2)
-		return prods	
-	
-	@partial(jax.jit, static_argnums=(0,))
-	def repair_cov(self, C):
-		epsilon = 1e-5
-		eigenvalues, eigenvectors = jnp.linalg.eigh(C)
-		min_eigenvalue = jnp.min(eigenvalues)
-		def repair(_):
-			clipped = jnp.where(eigenvalues < epsilon, epsilon, eigenvalues)
-			D_prime = jnp.diag(clipped)
-			C_repaired = eigenvectors @ D_prime @ eigenvectors.T
-			# C_repaired = (C_repaired + C_repaired.T) / 2
-			return C_repaired
 
-		def keep(_):
-			# cov_sym = (cov + cov.T) / 2
-			return C
-
-		C_repaired = jax.lax.cond(min_eigenvalue < epsilon, repair, keep, operand=None)
-		return C_repaired
-	
-	@partial(jax.jit, static_argnums=(0,))
-	def compute_mean_cov(self, cost_ellite, mean_control_prev, cov_control_prev, xi_ellite):
-		w = cost_ellite
-		w_min = jnp.min(cost_ellite)
-		w = jnp.exp(-(1/self.lamda) * (w - w_min ) )
-		sum_w = jnp.sum(w, axis = 0)
-		mean_control = (1-self.alpha_mean)*mean_control_prev + self.alpha_mean*(jnp.sum( (xi_ellite * w[:,jnp.newaxis]) , axis= 0)/ sum_w)
-		diffs = (xi_ellite - mean_control)
-		prod_result = self.vec_product(diffs, w)
-		cov_control = (1-self.alpha_cov)*cov_control_prev + self.alpha_cov*(jnp.sum( prod_result , axis = 0)/jnp.sum(w, axis = 0)) + 0.01*jnp.identity(self.nvar)
-		cov_control = self.repair_cov(cov_control)
-		return mean_control, cov_control
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def cem_iter(self, carry,  scan_over):
@@ -506,17 +453,6 @@ class cem_planner():
 		xi_mean_prev = xi_mean 
 		xi_cov_prev = xi_cov
 
-		# xi_samples_reshaped = xi_samples.reshape(self.num_batch, self.num_dof, self.num)
-		# xi_samples_batched_over_dof = jnp.transpose(xi_samples_reshaped, (1, 0, 2)) # shape: (DoF, B, num)
-
-		# state_term_reshaped = state_term.reshape(self.num_batch, self.num_dof, 1)
-		# state_term_batched_over_dof = jnp.transpose(state_term_reshaped, (1, 0, 2)) #Shape: (DoF, B, 1)
-
-		# lamda_init_reshaped = lamda_init.reshape(self.num_batch, self.num_dof, self.num)
-		# lamda_init_batched_over_dof = jnp.transpose(lamda_init_reshaped, (1, 0, 2)) # shape: (DoF, B, num)
-
-		# s_init_reshaped = s_init.reshape(self.num_batch, self.num_dof, self.num_total_constraints_per_dof )
-		# s_init_batched_over_dof = jnp.transpose(s_init_reshaped, (1, 0, 2)) # shape: (DoF, B, num_total_constraints_per_dof)
         
 		s_init = jnp.maximum(
 			jnp.zeros((self.num_batch, self.num_total_constraints)),
@@ -532,10 +468,8 @@ class cem_planner():
 																 init_pos)
 		
 
-		# xi_filtered = jnp.clip(xi_filtered, a_min=-1.0, a_max=1.0)
 		
 
-		# xi_filtered = xi_filtered.transpose(1, 0, 2).reshape(self.num_batch, -1) # shape: (B, num*num_dof)
 		
 		# primal_residuals = jnp.linalg.norm(primal_residuals, axis = 0)
 		# fixed_point_residuals = jnp.linalg.norm(fixed_point_residuals, axis = 0)
@@ -561,9 +495,9 @@ class cem_planner():
 
 		cost_batch, cost_list_batch = self.compute_cost_batch(force, joint_pos, joint_vel, cost_weights)
 
-		xi_ellite, idx_ellite, cost_ellite = self.compute_ellite_samples(cost_batch, xi_samples)
-		xi_mean, xi_cov = self.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
-		xi_samples_new, key = self.compute_xi_samples(key, xi_mean, xi_cov)
+		xi_ellite, idx_ellite, cost_ellite = self.sampling.compute_ellite_samples(cost_batch, xi_samples)
+		xi_mean, xi_cov = self.sampling.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
+		xi_samples_new, key = self.sampling.compute_xi_samples(key, xi_mean, xi_cov)
 
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
 

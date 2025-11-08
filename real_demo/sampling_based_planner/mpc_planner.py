@@ -105,7 +105,7 @@ class run_cem_planner:
             self.xi_cov = jnp.kron(jnp.eye(self.cem.num_dof), self.cov_scalar_coeff*jnp.identity(self.cem.nvar_single))  
         
         # Generate samples
-        self.xi_samples, self.key = self.cem.compute_xi_samples(self.key, self.xi_mean, self.xi_cov)
+        self.xi_samples, self.key = self.cem.sampling.compute_xi_samples(self.key, self.xi_mean, self.xi_cov)
 
         # self.xi_samples = jnp.clip(self.xi_samples, a_min=-1.0, a_max=1.0)
 
