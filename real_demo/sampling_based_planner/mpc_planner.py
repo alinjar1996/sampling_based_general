@@ -86,7 +86,7 @@ class run_cem_planner:
             f'mlp_biped_2000_100_1_{self.cem.num_batch}.pth'
         )
 
-        print(f"[INFO] Loading MLP weights from: {self.weight_path}")
+        # print(f"[INFO] Loading MLP weights from: {self.weight_path}")
 
         # self.inp = jnp.hstack([self.cem.compute_xi_samples])
         # Initialize MLP if inference is enabled

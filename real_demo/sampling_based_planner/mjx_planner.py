@@ -18,6 +18,9 @@ import mujoco.mjx as mjx
 import jax
 import jax.numpy as jnp
 
+from MLP_projection.mlp_biped_torque_jax import MLP, MLPProjectionFilter
+import equinox as eqx
+
 # Get the folder containing this script
 current_dir = os.path.dirname(os.path.abspath(__file__))  # if in a script
 # current_dir = os.getcwd()  # if in Jupyter notebook
@@ -259,8 +262,55 @@ class cem_planner():
 		# self.compute_rollout_batch = jax.vmap(self.compute_rollout_single, in_axes = (None, 0, None, None))
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
-          
+
+		# Get absolute path to the package share folder
+		package_share = get_package_share_directory('real_demo')
+
+		# Build path to your weights and biases
+		self.wb_model_path = os.path.join(package_share,'mlp_proj_training_weights', f'model_333.eqx')
+		self.wb_state_path = os.path.join(package_share,'mlp_proj_training_weights', f'state_333.eqx')
+    
+
 		self.print_info()
+
+
+		self.infer_fn = self.load_mlp_projection_model_jax((self.num+1)*self.num_dof)
+
+	def load_mlp_projection_model_jax(self, num_feature):
+
+		key = jax.random.PRNGKey(42)
+
+		enc_inp_dim = num_feature
+		mlp_inp_dim = enc_inp_dim
+		hidden_dim = 1024
+		mlp_out_dim = 2 * self.nvar + self.num_total_constraints
+
+		# mlp = MLP(mlp_inp_dim, hidden_dim, mlp_out_dim)
+		mlp =  MLP(mlp_inp_dim, hidden_dim, mlp_out_dim, key)
+
+
+		model = MLPProjectionFilter(mlp=mlp, qp_instance=self.qp)
+
+		# print(type(model))
+
+		state = eqx.nn.State(model)
+
+		# print(type(state))
+
+		"""Load the MLP JAX projection model for inference"""
+		# Load trained weights/state
+		model = eqx.tree_deserialise_leaves(self.wb_model_path, model)
+		state = eqx.tree_deserialise_leaves(self.wb_state_path, state)
+
+		print(f"[INFO] Loading MLP weights from: {self.wb_model_path} and {self.wb_state_path}")
+
+		# Freeze for inference
+		model_inf = eqx.tree_inference(model, value=True)
+		# infer_fn = eqx.Partial(model_inf, state=state, is_training=False)
+		infer_fn = eqx.Partial(model_inf, state=state, is_training=False)
+		
+		return infer_fn
+
 
 
 	def print_info(self):
@@ -319,7 +369,16 @@ class cem_planner():
 	def get_A_eq(self):
 		return np.kron(np.identity(self.num_dof), self.P[0])
 	
+    
+	@partial(jax.jit, static_argnums=(0,))
+	def inp_normalization(self, inp):
 
+		inp_mean = inp.mean()
+		inp_std = inp.std()
+		inp_norm = (inp-inp_mean)/inp_std
+		
+		return inp_norm
+	
 
 	@partial(jax.jit, static_argnums=(0,))
 	def mjx_step_torque(self, mjx_data, torque_single):
@@ -355,42 +414,8 @@ class cem_planner():
 			collision
 		)
 	
-
-
-	# @partial(jax.jit, static_argnums=(0,))
-	# def compute_rollout_single(self, thetadot, init_pos, init_vel):
-
-	# 	mjx_data = self.mjx_data
-	# 	qvel = mjx_data.qvel.at[self.joint_mask_vel].set(init_vel)
-	# 	qpos = mjx_data.qpos.at[self.joint_mask_pos].set(init_pos)
-
-	# 	mjx_data = mjx_data.replace(qvel=qvel, qpos=qpos)
-
-	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
-	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
-	# 	theta, torso_pos, collision = out
-	# 	#Sensor data
-	# 	sensor_data = mjx_data_final.sensordata
-
-	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
-
-	# @partial(jax.jit, static_argnums=(0,))
-	# def compute_rollout_single(self, mjx_data_current, thetadot, init_pos, init_vel):
-	# 	# Use the passed-in current state instead of self.mjx_data
-	# 	# mjx_data_current = self.mjx_data
-	# 	qvel = mjx_data_current.qvel.at[self.joint_mask_vel].set(init_vel)
-	# 	qpos = mjx_data_current.qpos.at[self.joint_mask_pos].set(init_pos)
-		
-	# 	mjx_data = mjx_data_current.replace(qvel=qvel, qpos=qpos)
-		
-	# 	thetadot_single = thetadot.reshape(self.num_dof, self.num)
-	# 	mjx_data_final, out = jax.lax.scan(self.mjx_step, mjx_data, thetadot_single.T, length=self.num)
-	# 	theta, torso_pos, collision = out
-	# 	sensor_data = mjx_data_final.sensordata
-		
-	# 	return theta.T.flatten(), torso_pos, collision, sensor_data
-
-	# 
+   
+ 
 	
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_rollout_single_torque(self, mjx_data_current, torques, init_pos, init_vel):
@@ -520,14 +545,24 @@ class cem_planner():
 																 s_init, 
 																 init_pos)
 		
-		# xi_filtered = xi_filtered.transpose(1, 0, 2).reshape(self.num_batch, -1) # shape: (B, num*num_dof)
-		
-		# primal_residuals = jnp.linalg.norm(primal_residuals, axis = 0)
-		# fixed_point_residuals = jnp.linalg.norm(fixed_point_residuals, axis = 0)
 				
 		avg_res_primal = jnp.sum(primal_residuals, axis = 0)/self.maxiter_projection
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
+
+
+
+
+        ##Inference with-trained model
+
+		inp = jnp.hstack((state_term, xi_samples))
+
+		inp_norm= self.inp_normalization(inp)
+
+		(xi_filtered, avg_res_fixed_point, avg_res_primal, 
+			primal_residuals, fixed_point_residuals, lamda_init, s_init), _ = \
+				self.infer_fn(inp_norm, state_term, xi_samples)
+		
 
 		torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
