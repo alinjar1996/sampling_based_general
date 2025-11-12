@@ -237,8 +237,8 @@ class run_cem_planner:
         )
         
         # # If the below lines are uncommented, mean and covariance of sampiling variables get updated with time, otherwise it does not.
-        # self.xi_mean = xi_mean
-        # self.xi_cov = xi_cov
+        self.xi_mean = xi_mean
+        self.xi_cov = xi_cov
 
 
         # Get mean velocity command (average middle 90% of trajectory)
