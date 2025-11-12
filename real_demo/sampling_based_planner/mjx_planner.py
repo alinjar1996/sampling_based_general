@@ -42,6 +42,7 @@ class cem_planner():
 				 max_joint_dtorque = None, max_joint_ddtorque = None):
 		super(cem_planner, self).__init__()
 	    
+		self.inference_jax = True
 
 		self.num_dof = num_dof
 		self.num_batch = num_batch
@@ -537,31 +538,64 @@ class cem_planner():
 		xi_mean_prev = xi_mean 
 		xi_cov_prev = xi_cov
 
-        # Pass all arguments as positional arguments; not keyword arguments
-		xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
-			                                                     xi_samples, 
-														         state_term, 
-																 lamda_init, 
-																 s_init, 
-																 init_pos)
-		
-				
-		avg_res_primal = jnp.sum(primal_residuals, axis = 0)/self.maxiter_projection
-    	
-		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
+		def projection_fn(state_term, xi_samples, lamda_init, s_init, init_pos, qp, maxiter_projection):
+			# Pass all arguments as positional arguments; not keyword arguments
+			xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
+				xi_samples, 
+				state_term, 
+				lamda_init, 
+				s_init, 
+				init_pos
+			)
+			
+			# Calculate the averages
+			avg_res_primal = jnp.sum(primal_residuals, axis=0) / maxiter_projection
+			avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis=0) / maxiter_projection
+			
+			# Return a unified structure (must match the true branch's return structure)
+			return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+					primal_residuals, fixed_point_residuals, lamda_init, s_init)
 
 
-
-
+		def inference_fn(state_term, xi_samples, lamda_init, s_init, init_pos, qp, maxiter_projection):
         ##Inference with-trained model
 
-		inp = jnp.hstack((state_term, xi_samples))
+			inp = jnp.hstack((state_term, xi_samples))
+			inp_norm = self.inp_normalization(inp) 
 
-		inp_norm= self.inp_normalization(inp)
+			# Execute the inference function
+			# Note: lamda_init and s_init from infer_fn's output are used instead of the inputs
+			(xi_filtered, avg_res_fixed_point, avg_res_primal, 
+				primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out), _ = \
+					self.infer_fn(inp_norm, state_term, xi_samples) 
+			
+			# Return a unified structure
+			return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+					primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out)
+		
 
+		# Arguments to be passed to both conditional functions:
+		cond_args = (state_term, xi_samples, lamda_init, s_init, init_pos)
+
+		# Predicate:
+		predicate = self.inference_jax
+
+		# Prepare the functions by partially applying class-level variables
+
+		true_fun = partial(inference_fn, 
+						qp=self.qp, 
+						maxiter_projection=self.maxiter_projection)
+						
+		false_fun = partial(projection_fn, 
+							qp=self.qp, 
+							maxiter_projection=self.maxiter_projection)
+
+		# Execute the conditional logic
 		(xi_filtered, avg_res_fixed_point, avg_res_primal, 
-			primal_residuals, fixed_point_residuals, lamda_init, s_init), _ = \
-				self.infer_fn(inp_norm, state_term, xi_samples)
+		primal_residuals, fixed_point_residuals, lamda_init, s_init) = \
+			jax.lax.cond(predicate, true_fun, false_fun, *cond_args)
+
+
 		
 
 		torque = jnp.dot(self.A_torque, xi_filtered.T).T
