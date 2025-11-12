@@ -68,8 +68,7 @@ class cem_planner():
 		self.nvar_single = jnp.shape(self.P_jax)[1]
 		self.nvar = self.nvar_single*self.num_dof 
   
-		self.rho_ineq = 1.0
-		self.rho_projection = 1.0
+		self.rho_ineq = 0.00001
 
 		self.A_projection = jnp.identity(self.nvar)
 
@@ -530,9 +529,9 @@ class cem_planner():
     	
 		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis = 0)/self.maxiter_projection
 
-		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
+		torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		torque = jnp.dot(self.A_torque, xi_samples.T).T
+		# torque = jnp.dot(self.A_torque, xi_samples.T).T
 
 		mjx_data_current = carry[-1]
 
