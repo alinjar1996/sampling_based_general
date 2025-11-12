@@ -221,7 +221,7 @@ class run_cem_planner:
 
         # CEM computation
         cost_cem, cost_list_cem, torque_horizon, theta_horizon, \
-        self.xi_mean, self.xi_cov, xi_samples, torque_filtered_cem, torque_all, th_all, avg_primal_res, avg_fixed_res, \
+        xi_mean, xi_cov, xi_samples, xi_filtered, torque_all, th_all, avg_primal_res, avg_fixed_res, \
         primal_res, fixed_res, idx_min, torso_trace_planned, torso_trace_all  = self.cem.compute_cem(
             current_mjx_data,
             self.xi_mean,
@@ -235,6 +235,10 @@ class run_cem_planner:
             self.xi_samples,
             self.cost_weights,
         )
+        
+        # # If the below lines are uncommented, mean and covariance of sampiling variables get updated with time, otherwise it does not.
+        # self.xi_mean = xi_mean
+        # self.xi_cov = xi_cov
 
 
         # Get mean velocity command (average middle 90% of trajectory)
@@ -250,7 +254,7 @@ class run_cem_planner:
                 torso_trace_planned,
                 torso_trace_all,
                 torque_all,
-                torque_filtered_cem,
+                xi_filtered,
                 primal_res,
                 fixed_res,
                 xi_samples)

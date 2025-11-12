@@ -83,7 +83,7 @@ class Planner(Node):
                 'theta_horizon': [],   # Planned theta horizon 
                 'torque_horizon': [], # Planned torque horizon
                 'torque_samples': [], # torque sample
-                'torque_filtered': [], # torque filtered
+                'xi_filtered': [], # torque filtered
                 'torso_trace_planned': [], # best torso_trace
                 'torso_trace_all': [], # torso_trace_all_samples
                 'primal_res': [], # Primal residual
@@ -276,7 +276,7 @@ class Planner(Node):
          torso_trace_planned,
          torso_trace_all,
          torque_samples,
-         torque_filtered,
+         xi_filtered,
          primal_res,
          fixed_res,
          xi_samples) = self.planner.compute_control(self.data, current_pos, current_vel, current_torque)
@@ -314,7 +314,7 @@ class Planner(Node):
             self.data_buffers['theta_horizon'].append(theta_horizon.copy())
             self.data_buffers['torque_horizon'].append(torque_horizon.copy())
             self.data_buffers['torque_samples'].append(torque_samples.copy())
-            self.data_buffers['torque_filtered'].append(torque_filtered.copy())
+            self.data_buffers['xi_filtered'].append(xi_filtered.copy())
             self.data_buffers['torso_trace_planned'].append(torso_trace_planned.copy())
             self.data_buffers['torso_trace_all'].append(torso_trace_all.copy())
             self.data_buffers['primal_res'].append(primal_res.copy())
@@ -373,7 +373,7 @@ class Planner(Node):
             'theta_horizon': np.array(self.data_buffers['theta_horizon']),
             'torque_horizon': np.array(self.data_buffers['torque_horizon']),
             'torque_samples': np.array(self.data_buffers['torque_samples']),
-            'torque_filtered': np.array(self.data_buffers['torque_filtered']),
+            'xi_filtered': np.array(self.data_buffers['xi_filtered']),
             'torso_trace_planned': np.array(self.data_buffers['torso_trace_planned']),
             'torso_trace_all': np.array(self.data_buffers['torso_trace_all']),
             'primal_res': np.array(self.data_buffers['primal_res']),
