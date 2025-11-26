@@ -92,17 +92,10 @@ class Planner(Node):
             }
             
 
-        # cost_weights = {
-        #     'height': 20.0,
-		# 	'orientation': 15.0,
-        #     'velocity': 15.0,
-        #     'control': 0.1
-        # }
-
         cost_weights = {
-            'height': 10.0,
-			'orientation': 3.0,
-            'velocity': 1.0,
+            'height': 20.0,
+			'orientation': 15.0,
+            'velocity': 15.0,
             'control': 0.1
         }
 
@@ -201,7 +194,8 @@ class Planner(Node):
             maxiter_projection=maxiter_projection,
             num_elite=num_elite,
             timestep=self.timestep,
-            cost_weights=cost_weights
+            cost_weights=cost_weights,
+            inference_jax=True
         )
         
         # Setup viewer

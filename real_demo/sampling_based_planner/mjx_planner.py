@@ -39,10 +39,10 @@ class cem_planner():
 
 	def __init__(self, model=None, num_dof=None, num_batch=None, num_steps=None, timestep=None, maxiter_cem=None, num_elite=None, 
 			     maxiter_projection=None, max_joint_inttorque = None ,max_joint_torque = None, 
-				 max_joint_dtorque = None, max_joint_ddtorque = None):
+				 max_joint_dtorque = None, max_joint_ddtorque = None, inference_jax=None):
 		super(cem_planner, self).__init__()
 	    
-		self.inference_jax = False
+		self.inference_jax = inference_jax
 
 		self.num_dof = num_dof
 		self.num_batch = num_batch
@@ -62,7 +62,7 @@ class cem_planner():
 		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
 		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
 		
-		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(3, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
 		self.Pint = jnp.zeros_like(self.P) 
 
@@ -72,7 +72,7 @@ class cem_planner():
 		self.nvar_single = jnp.shape(self.P_jax)[1]
 		self.nvar = self.nvar_single*self.num_dof 
   
-		self.rho_ineq = 0.00001
+		self.rho_ineq = 1e-2
 
 		self.A_projection = jnp.identity(self.nvar)
 
@@ -268,14 +268,16 @@ class cem_planner():
 		package_share = get_package_share_directory('real_demo')
 
 		# Build path to your weights and biases
-		self.wb_model_path = os.path.join(package_share,'mlp_proj_training_weights', f'model_333.eqx')
-		self.wb_state_path = os.path.join(package_share,'mlp_proj_training_weights', f'state_333.eqx')
+		self.wb_model_path = os.path.join(package_share,'mlp_proj_training_weights', f'model_0_250.eqx')
+		self.wb_state_path = os.path.join(package_share,'mlp_proj_training_weights', f'state_0_250.eqx')
     
 
 		self.print_info()
 
-		if self.inference_jax:
-			self.infer_fn = self.load_mlp_projection_model_jax((self.num+1)*self.num_dof)
+		# print("P", self.P.shape)
+
+		self.infer_fn = self.load_mlp_projection_model_jax((self.P.shape[1]+1)*self.num_dof) #if self.inference_jax #else None
+
 		# else:
 		# 	self.infer_fn = None
 
@@ -540,7 +542,7 @@ class cem_planner():
 		xi_mean_prev = xi_mean 
 		xi_cov_prev = xi_cov
 
-		def projection_fn(state_term, xi_samples, lamda_init, s_init, init_pos, qp, maxiter_projection, infer_fn):
+		def projection_fn(state_term, xi_samples, lamda_init, s_init, init_pos, maxiter_projection):
 			# Pass all arguments as positional arguments; not keyword arguments
 			xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
 				xi_samples, 
@@ -559,55 +561,49 @@ class cem_planner():
 					primal_residuals, fixed_point_residuals, lamda_init, s_init)
 
 
-		# def inference_fn(state_term, xi_samples, lamda_init, s_init, init_pos, qp, maxiter_projection, infer_fn):
-        # ##Inference with-trained model
+		def inference_fn(state_term, xi_samples, lamda_init, s_init, init_pos, maxiter_projection):
+        ##Inference with-trained model
 
-		# 	inp = jnp.hstack((state_term, xi_samples))
-		# 	inp_norm = self.inp_normalization(inp) 
+			inp = jnp.hstack((state_term, xi_samples))
+			inp_norm = self.inp_normalization(inp) 
 
-		# 	# Execute the inference function
-		# 	# Note: lamda_init and s_init from infer_fn's output are used instead of the inputs
-		# 	(xi_filtered, avg_res_fixed_point, avg_res_primal, 
-		# 		primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out), _ = \
-		# 			infer_fn(inp_norm, state_term, xi_samples) 
+			# Execute the inference function
+			# Note: lamda_init and s_init from infer_fn's output are used instead of the inputs
+			(xi_filtered, avg_res_fixed_point, avg_res_primal, 
+				primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out), _ = \
+					self.infer_fn(inp_norm, state_term, xi_samples) 
 			
-		# 	# Return a unified structure
-		# 	return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
-		# 			primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out)
+			# Return a unified structure
+			return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+					primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out)
 		
 
-		# # Arguments to be passed to both conditional functions:
-		# cond_args = (state_term, xi_samples, lamda_init, s_init, init_pos)
+		
+        # Define a tuple of arguments passed to the conditional functions
+		cond_args = (state_term, xi_samples, lamda_init, s_init, init_pos, self.maxiter_projection)
 
-		# # Predicate:
-		# predicate = self.inference_jax
-
-		# # Prepare the functions by partially applying class-level variables
-
-		# true_fun = partial(inference_fn, 
-		# 					qp=self.qp, 
-		# 					maxiter_projection=self.maxiter_projection,
-		# 					infer_fn = self.infer_fn)
-						
-		# false_fun = partial(projection_fn, 
-		# 					qp=self.qp, 
-		# 					maxiter_projection=self.maxiter_projection,
-		# 					infer_fn = None)
-
-		# # Execute the conditional logic
-		# (xi_filtered, avg_res_fixed_point, avg_res_primal, 
-		# primal_residuals, fixed_point_residuals, lamda_init, s_init) = \
-		# 	jax.lax.cond(predicate, true_fun, false_fun, *cond_args)
-        
 		(xi_filtered, avg_res_fixed_point, avg_res_primal, 
-		primal_residuals, fixed_point_residuals, lamda_init, s_init) = projection_fn(state_term, xi_samples, lamda_init, s_init,
-																			   init_pos, self.qp, self.maxiter_projection, infer_fn=None)
+			primal_residuals, fixed_point_residuals, lamda_init, s_init) = jax.lax.cond(
+				self.inference_jax, 
+				inference_fn,  # True branch
+				projection_fn, # False branch
+				*cond_args     # Arguments passed to the chosen function
+			)
+		
+		# (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+		# primal_residuals, fixed_point_residuals, lamda_init, s_init) = projection_fn(state_term, xi_samples, lamda_init, s_init,
+		# 																	   init_pos, self.qp, self.maxiter_projection, infer_fn=self.infer_fn)
 
 		
+		# (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+		# primal_residuals, fixed_point_residuals, lamda_init, s_init) = inference_fn(state_term, xi_samples, lamda_init, s_init,
+		# 																	   init_pos, self.qp, self.maxiter_projection, 
+		# 																	   infer_fn=self.infer_fn)
 
-		# torque = jnp.dot(self.A_torque, xi_filtered.T).T
+
+		torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		torque = jnp.dot(self.A_torque, xi_samples.T).T
+		# torque = jnp.dot(self.A_torque, xi_samples.T).T
 
 		mjx_data_current = carry[-1]
 

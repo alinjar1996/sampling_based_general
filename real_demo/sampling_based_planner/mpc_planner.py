@@ -24,8 +24,8 @@ class run_cem_planner:
     def __init__(self, model, data, num_dof=None, num_batch=None, num_steps=None, 
                  maxiter_cem=None, maxiter_projection=None, num_elite=None, timestep=None,
                  max_joint_inttorque=0.0, max_joint_torque=1.0, 
-                 max_joint_dtorque=1.5, max_joint_ddtorque=2.0,
-                 device='cuda', cost_weights=None):
+                 max_joint_dtorque=10.0, max_joint_ddtorque=20.0,
+                 device='cuda', cost_weights=None, inference_jax=None):
         
         
         
@@ -60,7 +60,8 @@ class run_cem_planner:
             max_joint_inttorque=max_joint_inttorque,
             max_joint_torque=max_joint_torque,
             max_joint_dtorque=max_joint_dtorque,
-            max_joint_ddtorque=max_joint_ddtorque
+            max_joint_ddtorque=max_joint_ddtorque,
+            inference_jax=inference_jax
         )
         
         # Initialize CEM variables
