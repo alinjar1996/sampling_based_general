@@ -1,6 +1,5 @@
 import os
 import sys
-from ament_index_python.packages import get_package_share_directory
 
 
 xla_flags = os.environ.get('XLA_FLAGS', '')
