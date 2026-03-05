@@ -18,12 +18,12 @@ class Planner:
         self,
         record_data=False,
         idx=0,
-        num_batch=500,
-        num_steps=15,
-        maxiter_cem=1,
-        maxiter_projection=5,
-        num_elite=0.05,
-        timestep=0.1,
+        num_batch=None,
+        num_steps=None,
+        maxiter_cem=None,
+        maxiter_projection=None,
+        num_elite=None,
+        timestep=None,
     ):
 
         self.num_dof = 1
@@ -214,15 +214,15 @@ class Planner:
 def main():
 
     planner = Planner(
-        num_batch=50,
-        num_steps=15,
+        num_batch=25,
+        num_steps=10,
         maxiter_cem=1,
-        maxiter_projection=5,
+        maxiter_projection=1,
         num_elite=0.05,
         timestep=0.1,
     )
 
-    planner.run(steps=150)
+    planner.run(steps=250)
 
 
 if __name__ == "__main__":
