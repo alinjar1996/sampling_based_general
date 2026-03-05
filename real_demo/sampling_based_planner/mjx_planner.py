@@ -1,6 +1,5 @@
 import os
 import sys
-from ament_index_python.packages import get_package_share_directory
 
 
 
@@ -18,7 +17,6 @@ import mujoco.mjx as mjx
 import jax
 import jax.numpy as jnp
 
-from MLP_projection.mlp_biped_torque_jax import MLP, MLPProjectionFilter
 import equinox as eqx
 
 # Get the folder containing this script
@@ -60,12 +58,11 @@ class cem_planner():
 		# self.P = jnp.identity(self.num) # Torque mapping 
 		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
 		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
-		# self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
 		
-		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(3, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		self.P, self.Pdot, self.Pddot, _ = bernstein_coeff_ordern_new(3, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 
-		self.Pint = jnp.zeros_like(self.P) 
-
+		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
+        
 		self.P_jax, self.Pdot_jax, self.Pddot_jax = jnp.asarray(self.P), jnp.asarray(self.Pdot), jnp.asarray(self.Pddot)
 		self.Pint_jax = jnp.asarray(self.Pint)
 
@@ -208,7 +205,7 @@ class cem_planner():
 		# for i, name in enumerate(joint_names_pos):
 		# 	print(f"  {i}: '{name}' -> controlled: {self.joint_mask_pos[i]}")
 
-		print("\nVelocity-controlled joints:")  
+		print("\nTorque-controlled joints:")  
 		for i, name in enumerate(joint_names_vel):
 			print(f"  {i}: '{name}' -> controlled: {self.joint_mask_vel[i]}")
 
@@ -265,18 +262,14 @@ class cem_planner():
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, None))
 
 		# Get absolute path to the package share folder
-		package_share = get_package_share_directory('real_demo')
 
-		# Build path to your weights and biases
-		self.wb_model_path = os.path.join(package_share,'mlp_proj_training_weights', f'model_0_250.eqx')
-		self.wb_state_path = os.path.join(package_share,'mlp_proj_training_weights', f'state_0_250.eqx')
+
     
 
 		self.print_info()
 
 		# print("P", self.P.shape)
 
-		self.infer_fn = self.load_mlp_projection_model_jax((self.P.shape[1]+1)*self.num_dof) #if self.inference_jax #else None
 
 		# else:
 		# 	self.infer_fn = None
@@ -542,9 +535,55 @@ class cem_planner():
 		xi_mean_prev = xi_mean 
 		xi_cov_prev = xi_cov
 
-		def projection_fn(state_term, xi_samples, lamda_init, s_init, init_pos, maxiter_projection):
-			# Pass all arguments as positional arguments; not keyword arguments
-			xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
+		# def projection_fn(state_term, xi_samples, lamda_init, s_init, init_pos, maxiter_projection):
+		# 	# Pass all arguments as positional arguments; not keyword arguments
+		# 	xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
+		# 		xi_samples, 
+		# 		state_term, 
+		# 		lamda_init, 
+		# 		s_init, 
+		# 		init_pos
+		# 	)
+			
+		# 	# Calculate the averages
+		# 	avg_res_primal = jnp.sum(primal_residuals, axis=0) / maxiter_projection
+		# 	avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis=0) / maxiter_projection
+			
+		# 	# Return a unified structure (must match the true branch's return structure)
+		# 	return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+		# 			primal_residuals, fixed_point_residuals, lamda_init, s_init)
+
+
+		# def inference_fn(state_term, xi_samples, lamda_init, s_init, init_pos, maxiter_projection):
+        # ##Inference with-trained model
+
+		# 	inp = jnp.hstack((state_term, xi_samples))
+		# 	inp_norm = self.inp_normalization(inp) 
+
+		# 	# Execute the inference function
+		# 	# Note: lamda_init and s_init from infer_fn's output are used instead of the inputs
+		# 	(xi_filtered, avg_res_fixed_point, avg_res_primal, 
+		# 		primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out), _ = \
+		# 			self.infer_fn(inp_norm, state_term, xi_samples) 
+			
+		# 	# Return a unified structure
+		# 	return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+		# 			primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out)
+		
+
+		
+        # # Define a tuple of arguments passed to the conditional functions
+		# cond_args = (state_term, xi_samples, lamda_init, s_init, init_pos, self.maxiter_projection)
+
+		# (xi_filtered, avg_res_fixed_point, avg_res_primal, 
+		# 	primal_residuals, fixed_point_residuals, lamda_init, s_init) = jax.lax.cond(
+		# 		self.inference_jax, 
+		# 		inference_fn,  # True branch
+		# 		projection_fn, # False branch
+		# 		*cond_args     # Arguments passed to the chosen function
+		# 	)
+
+		xi_filtered, primal_residuals, fixed_point_residuals = self.qp.compute_projection(
 				xi_samples, 
 				state_term, 
 				lamda_init, 
@@ -552,53 +591,10 @@ class cem_planner():
 				init_pos
 			)
 			
-			# Calculate the averages
-			avg_res_primal = jnp.sum(primal_residuals, axis=0) / maxiter_projection
-			avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis=0) / maxiter_projection
-			
-			# Return a unified structure (must match the true branch's return structure)
-			return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
-					primal_residuals, fixed_point_residuals, lamda_init, s_init)
-
-
-		def inference_fn(state_term, xi_samples, lamda_init, s_init, init_pos, maxiter_projection):
-        ##Inference with-trained model
-
-			inp = jnp.hstack((state_term, xi_samples))
-			inp_norm = self.inp_normalization(inp) 
-
-			# Execute the inference function
-			# Note: lamda_init and s_init from infer_fn's output are used instead of the inputs
-			(xi_filtered, avg_res_fixed_point, avg_res_primal, 
-				primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out), _ = \
-					self.infer_fn(inp_norm, state_term, xi_samples) 
-			
-			# Return a unified structure
-			return (xi_filtered, avg_res_fixed_point, avg_res_primal, 
-					primal_residuals, fixed_point_residuals, lamda_init_out, s_init_out)
+		# Calculate the averages
+		avg_res_primal = jnp.sum(primal_residuals, axis=0) / self.maxiter_projection
+		avg_res_fixed_point = jnp.sum(fixed_point_residuals, axis=0) / self.maxiter_projection
 		
-
-		
-        # Define a tuple of arguments passed to the conditional functions
-		cond_args = (state_term, xi_samples, lamda_init, s_init, init_pos, self.maxiter_projection)
-
-		(xi_filtered, avg_res_fixed_point, avg_res_primal, 
-			primal_residuals, fixed_point_residuals, lamda_init, s_init) = jax.lax.cond(
-				self.inference_jax, 
-				inference_fn,  # True branch
-				projection_fn, # False branch
-				*cond_args     # Arguments passed to the chosen function
-			)
-		
-		# (xi_filtered, avg_res_fixed_point, avg_res_primal, 
-		# primal_residuals, fixed_point_residuals, lamda_init, s_init) = projection_fn(state_term, xi_samples, lamda_init, s_init,
-		# 																	   init_pos, self.qp, self.maxiter_projection, infer_fn=self.infer_fn)
-
-		
-		# (xi_filtered, avg_res_fixed_point, avg_res_primal, 
-		# primal_residuals, fixed_point_residuals, lamda_init, s_init) = inference_fn(state_term, xi_samples, lamda_init, s_init,
-		# 																	   init_pos, self.qp, self.maxiter_projection, 
-		# 																	   infer_fn=self.infer_fn)
 
 
 		torque = jnp.dot(self.A_torque, xi_filtered.T).T
@@ -614,7 +610,8 @@ class cem_planner():
 		cost_batch, cost_list_batch = self.compute_cost_batch(torque, sensor_data, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.sampling.compute_ellite_samples(cost_batch, xi_samples)
-		xi_mean, xi_cov = self.sampling.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
+		# xi_mean, xi_cov = self.sampling.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
+		xi_mean, xi_cov = self.sampling.compute_adaptive_mean_cov(cost_batch, xi_mean_prev, xi_cov_prev, xi_samples)
 		xi_samples_new, key = self.sampling.compute_xi_samples(key, xi_mean, xi_cov)
 
 		s_init = jnp.maximum(

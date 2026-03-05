@@ -1,7 +1,5 @@
 from sampling_based_planner.mjx_planner import cem_planner
-from sampling_based_planner.quat_math import quaternion_distance, quaternion_multiply, rotation_quaternion
-from ik_based_planner.ik_solver import InverseKinematicsSolver
-from MLP_projection.mlp_biped_torque import MLP, MLPProjectionFilter
+
 
 import mujoco
 from mujoco import viewer
@@ -14,7 +12,6 @@ import contextlib
 from io import StringIO
 
 import os
-from ament_index_python.packages import get_package_share_directory
 
 
 
@@ -77,15 +74,7 @@ class run_cem_planner:
         self.inference = False
 
 
-        # Get absolute path to the package share folder
-        package_share = get_package_share_directory('real_demo')
-
-        # Build path to your weights
-        self.weight_path = os.path.join(
-            package_share,
-            'mlp_proj_training_weights',
-            f'mlp_biped_2000_100_1_{self.cem.num_batch}.pth'
-        )
+        
 
         # print(f"[INFO] Loading MLP weights from: {self.weight_path}")
 
