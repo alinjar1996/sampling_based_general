@@ -199,8 +199,8 @@ class Planner:
 
         step_sleep = self.model.opt.timestep - (time.time() - start_time)
 
-        if step_sleep > 0:
-            time.sleep(step_sleep)
+        # if step_sleep > 0:
+        #     time.sleep(step_sleep)
 
     def run(self, steps=250):
 
