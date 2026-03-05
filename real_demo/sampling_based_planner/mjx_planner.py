@@ -261,6 +261,7 @@ class cem_planner():
 
 
 		self.compute_rollout_batch = jax.vmap(self.compute_rollout_single_torque, in_axes = (None, 0, None, None))
+		# self.compute_rollout_batch = jax.vmap(self.compute_dynamics_rollout_single, in_axes = (None, 0, None, None))
 		self.compute_cost_batch = jax.vmap(self.compute_cost_single, in_axes = (0, 0, 0, None))
           
 		self.print_info()
@@ -390,6 +391,94 @@ class cem_planner():
 		
 		return theta.T.flatten(), thetadot.T.flatten(), tip_pos
 	
+	@partial(jax.jit, static_argnums=(0,))
+	def compute_dynamics_single_step(self, mjx_data_current, torques, init_pos, init_vel):
+		"""
+		Analytical (pendulum-like) torque-based rollout — JAX version (no clipping).
+
+		Args:
+			mjx_data_current: unused placeholder (for API consistency)
+			torques: control inputs (shape [num_dof, num] or [num_dof])
+			init_pos: initial joint positions
+			init_vel: initial joint velocities
+
+		Returns:
+			theta, thetadot, tip_pos (X, 0, Z)
+		"""
+		# Interpret init_pos and init_vel as angular position and velocity
+		th = init_pos
+		thdot = init_vel
+
+		# Constants
+		g = 9.81
+		m = 1.0
+		l = 1.0
+		dt = self.t
+
+		# Handle single or multi-step torque inputs
+		u = torques
+		if u.ndim > 1:
+			u = u[:, 0]  # take first column if multiple timesteps
+		u = u.reshape(-1, 1)
+
+		# Analytical dynamics update (explicit Euler)
+		newthdot = thdot + (-3 * g / (2 * l) * jnp.sin(th + jnp.pi) + 3.0 / (m * l**2) * u) * dt
+		newth = th + newthdot * dt
+
+		# reshape to match input shapes (important for lax.scan)
+		newth = jnp.reshape(newth, th.shape)
+		newthdot = jnp.reshape(newthdot, thdot.shape)
+
+		# Compute tip position in (X, 0, Z)
+		tip_x = -l * jnp.sin(newth)
+		tip_y = jnp.zeros_like(tip_x)
+		tip_z = -l * jnp.cos(newth)
+		tip_pos = jnp.concatenate([tip_x, tip_y, tip_z], axis=-1)
+
+		base_pos = jnp.array([0.0, 0.0, 1.5])
+		tip_pos = tip_pos + base_pos
+
+		return newth, newthdot, tip_pos
+	
+	@partial(jax.jit, static_argnums=(0,))
+	def compute_dynamics_rollout_single(self, mjx_data_current, torques, init_pos, init_vel):
+		"""
+		Multi-step analytical (pendulum-like) dynamics rollout — JAX version (no clipping).
+
+		Args:
+			mjx_data_current: unused placeholder (for API consistency)
+			torques: control inputs (shape [num_dof, num])
+			init_pos: initial joint positions
+			init_vel: initial joint velocities
+
+		Returns:
+			theta_seq: [num, num_dof]
+			thetadot_seq: [num, num_dof]
+			tip_pos_seq: [num, *3] (X, 0, Z)
+		"""
+
+		def step_fn(carry, torque_t):
+			th, thdot = carry
+			newth, newthdot, tip_pos = self.compute_dynamics_single_step(
+				mjx_data_current, torque_t, th, thdot
+			)
+			new_carry = (newth, newthdot)
+			return new_carry, (newth, newthdot, tip_pos)
+
+		# Transpose torques to iterate over time dimension
+		# Expected shape: (num_dof, num) → (num, num_dof)
+		torques_T = torques.T
+
+		# Roll out dynamics for self.num steps
+		(_, _), (theta_seq, thetadot_seq, tip_pos_seq) = jax.lax.scan(
+			step_fn,
+			(init_pos, init_vel),
+			torques_T,
+			length=self.num
+		)
+
+		return theta_seq.flatten(), thetadot_seq.flatten(), tip_pos_seq
+
 
 	@partial(jax.jit, static_argnums=(0,))
 	def compute_cost_single(self, torque_single, theta, thetadot, cost_weights):
@@ -490,6 +579,7 @@ class cem_planner():
 		# jax.debug.print("torque {}", jnp.shape(torque))
 
 		mjx_data_current = carry[-1]
+		
 
 		theta, thetadot, tip_pos = self.compute_rollout_batch(mjx_data_current, torque, init_pos, init_vel)
 		cost_batch, cost_list_batch = self.compute_cost_batch(torque, theta, thetadot, cost_weights)
