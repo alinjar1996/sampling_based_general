@@ -33,7 +33,7 @@ class Planner:
         self.timestep = timestep
 
         cost_weights = {
-            "theta": 5.0,
+            "theta": 1.0,
             "thetadot": 0.01,
             "control": 0.001,
         }
