@@ -188,10 +188,10 @@ class Planner:
         print(
             f"\n| Total time: {time.time()-self.traj_time_start:.1f}s"
             f"\n| Step time: {(time.time()-start_time)*1000:.1f}ms"
-            f"\n| Cost: {cost_cem[-1]:.2f}"
-            f"\n| Theta: {cost_theta:.2f}"
-            f"\n| ThetaDot: {cost_thetadot:.2f}"
-            f"\n| Control: {cost_control:.2f}",
+            f"\n| Total Cost: {cost_cem[-1]:.2f}"
+            f"\n| Cost Theta: {cost_theta:.2f}"
+            f"\n| Cost ThetaDot: {cost_thetadot:.2f}"
+            f"\n| Cost Control: {cost_control:.2f}",
             flush=True
         )
 
@@ -214,7 +214,7 @@ class Planner:
 def main():
 
     planner = Planner(
-        num_batch=500,
+        num_batch=50,
         num_steps=15,
         maxiter_cem=1,
         maxiter_projection=5,
