@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import jax
 
 import numpy as np
-import torch 
 import contextlib
 from io import StringIO
 

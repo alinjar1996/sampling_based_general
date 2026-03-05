@@ -17,7 +17,6 @@ import mujoco.mjx as mjx
 import jax
 import jax.numpy as jnp
 
-import equinox as eqx
 
 # Get the folder containing this script
 current_dir = os.path.dirname(os.path.abspath(__file__))  # if in a script
