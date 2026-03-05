@@ -11,6 +11,8 @@ from sampling_based_planner.quat_math import *
 
 np.set_printoptions(precision=4, suppress=True)
 
+import argparse
+
 
 class Planner:
 
@@ -31,7 +33,7 @@ class Planner:
         self.timestep = timestep
 
         cost_weights = {
-            "theta": 1.0,
+            "theta": 5.0,
             "thetadot": 0.01,
             "control": 0.001,
         }
@@ -213,16 +215,26 @@ class Planner:
 
 def main():
 
+    parser = argparse.ArgumentParser(description="Pendulum CEM MPC Planner")
+    parser.add_argument("--num_batch", type=int, default=25)
+    parser.add_argument("--num_steps", type=int, default=10)
+    parser.add_argument("--maxiter_cem", type=int, default=5)
+    parser.add_argument("--maxiter_projection", type=int, default=1)
+    parser.add_argument("--num_elite", type=float, default=0.05)
+    parser.add_argument("--timestep", type=float, default=0.1)
+    parser.add_argument("--steps", type=int, default=250)
+    args = parser.parse_args()
     planner = Planner(
-        num_batch=25,
-        num_steps=10,
-        maxiter_cem=1,
-        maxiter_projection=1,
-        num_elite=0.05,
-        timestep=0.1,
+        num_batch=args.num_batch,
+        num_steps=args.num_steps,
+        maxiter_cem=args.maxiter_cem,
+        maxiter_projection=args.maxiter_projection,
+        num_elite=args.num_elite,
+        timestep=args.timestep,
     )
 
-    planner.run(steps=250)
+    planner.run(steps=args.steps)
+
 
 
 if __name__ == "__main__":

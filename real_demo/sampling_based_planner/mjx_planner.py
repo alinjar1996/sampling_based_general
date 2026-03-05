@@ -483,7 +483,8 @@ class cem_planner():
 
 		torque = jnp.dot(self.A_torque, xi_filtered.T).T
 		
-		# torque_raw = jnp.dot(self.A_torque, xi_samples.T).T
+		# torque = jnp.dot(self.A_torque, xi_samples.T).T
+
 
 		# jax.debug.print("xi_samples {}", jnp.shape(xi_samples))
 		# jax.debug.print("torque {}", jnp.shape(torque))
@@ -494,7 +495,9 @@ class cem_planner():
 		cost_batch, cost_list_batch = self.compute_cost_batch(torque, theta, thetadot, cost_weights)
 
 		xi_ellite, idx_ellite, cost_ellite = self.sampling.compute_ellite_samples(cost_batch, xi_samples)
-		xi_mean, xi_cov = self.sampling.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
+		# xi_mean, xi_cov = self.sampling.compute_mean_cov(cost_ellite, xi_mean_prev, xi_cov_prev, xi_ellite)
+		xi_mean, xi_cov = self.sampling.compute_adaptive_mean_cov(cost_batch, xi_mean_prev, 
+															xi_cov_prev, xi_samples)
 		xi_samples_new, key = self.sampling.compute_xi_samples(key, xi_mean, xi_cov)
 
 		carry = (xi_mean, xi_cov, key, state_term, lamda_init, s_init, xi_samples_new, init_pos, init_vel, cost_weights, mjx_data_current)
