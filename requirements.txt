@@ -15,7 +15,7 @@ fsspec==2025.3.2
 glfw==2.8.0
 importlib_resources==6.5.2
 ipykernel==6.29.5
-ipython==9.2.0
+ipython==8.38.0
 ipython_pygments_lexers==1.1.1
 jax==0.5.3
 jax-cuda12-pjrt==0.5.3
@@ -84,5 +84,5 @@ triton==3.1.0
 typing_extensions==4.13.2
 wcwidth==0.2.13
 zipp==3.21.0
-ur_rtde
+# ur_rtde
 qpsolvers[daqp]

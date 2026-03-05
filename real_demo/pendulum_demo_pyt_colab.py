@@ -1,17 +1,15 @@
 import os
+os.environ["MUJOCO_GL"] = "egl"
+
 import time
 import numpy as np
 import mujoco
-
-from IPython.display import display, clear_output
-import matplotlib.pyplot as plt
+import imageio
 
 from sampling_based_planner.mpc_planner import run_cem_planner
 from sampling_based_planner.quat_math import *
 
 np.set_printoptions(precision=4, suppress=True)
-
-os.environ["MUJOCO_GL"] = "egl"
 
 
 class Planner:
@@ -22,18 +20,14 @@ class Planner:
         idx=0,
         num_batch=500,
         num_steps=15,
-        maxiter_cem=2,
+        maxiter_cem=1,
         maxiter_projection=5,
         num_elite=0.05,
         timestep=0.1,
     ):
 
-        self.record_data_ = record_data
-        self.idx = str(idx).zfill(2)
-
         self.num_dof = 1
         self.init_joint_position = np.array([0.0])
-        self.num_steps = num_steps
         self.timestep = timestep
 
         cost_weights = {
@@ -48,13 +42,14 @@ class Planner:
         model_path = "real_demo/pendulum_mjx/scene.xml"
 
         self.model = mujoco.MjModel.from_xml_path(model_path)
-        self.model.opt.timestep = self.timestep
+        self.model.opt.timestep = timestep
         self.data = mujoco.MjData(self.model)
 
         mujoco.mj_forward(self.model, self.data)
 
-        # Renderer (instead of viewer)
         self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+
+        self.frames = []
 
         # Joint masks
         joint_names_pos = []
@@ -66,22 +61,16 @@ class Planner:
             joint_type = self.model.jnt_type[i]
 
             n_pos = (
-                7
-                if joint_type == mujoco.mjtJoint.mjJNT_FREE
-                else 4
-                if joint_type == mujoco.mjtJoint.mjJNT_BALL
+                7 if joint_type == mujoco.mjtJoint.mjJNT_FREE
+                else 4 if joint_type == mujoco.mjtJoint.mjJNT_BALL
                 else 1
             )
 
             n_vel = (
-                6
-                if joint_type == mujoco.mjtJoint.mjJNT_FREE
-                else 3
-                if joint_type == mujoco.mjtJoint.mjJNT_BALL
+                6 if joint_type == mujoco.mjtJoint.mjJNT_FREE
+                else 3 if joint_type == mujoco.mjtJoint.mjJNT_BALL
                 else 1
             )
-
-            n_ctrl = n_vel
 
             for _ in range(n_pos):
                 joint_names_pos.append(
@@ -93,7 +82,7 @@ class Planner:
                     mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i)
                 )
 
-            for _ in range(n_ctrl):
+            for _ in range(n_vel):
                 joint_names_ctrl.append(
                     mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i)
                 )
@@ -107,14 +96,12 @@ class Planner:
         self.actuator_joint_ids = self.model.actuator_trnid[:, 0]
 
         self.actuator_ctrl_indices = [
-            i
-            for i, j in enumerate(self.actuator_joint_ids)
+            i for i, j in enumerate(self.actuator_joint_ids)
             if self.joint_mask_ctrl[j]
         ]
 
         self.data.qpos[self.joint_mask_pos] = self.init_joint_position
 
-        # Planner
         self.planner = run_cem_planner(
             model=self.model,
             data=self.data,
@@ -124,11 +111,43 @@ class Planner:
             maxiter_cem=maxiter_cem,
             maxiter_projection=maxiter_projection,
             num_elite=num_elite,
-            timestep=self.timestep,
+            timestep=timestep,
             cost_weights=cost_weights,
         )
 
         self.traj_time_start = time.time()
+
+    def render_trace(self, tip_trace_positions):
+
+        scene = self.renderer.scene
+        base = scene.ngeom  # keep model geoms
+
+        for i, pos in enumerate(tip_trace_positions):
+
+            geom_id = base + i
+            if geom_id >= scene.maxgeom:
+                break
+
+            scene.ngeom += 1
+
+            size = np.array([0.02, 0.02, 0.02])
+            pos = np.array(pos).reshape(3)
+            mat = np.eye(3).flatten()
+
+            t = i / (len(tip_trace_positions) - 1 + 1e-9)
+
+            start_color = np.array([1, 0, 0, 1])
+            end_color = np.array([0, 1, 0, 1])
+            rgba = (1 - t) * start_color + t * end_color
+
+            mujoco.mjv_initGeom(
+                scene.geoms[geom_id],
+                mujoco.mjtGeom.mjGEOM_SPHERE,
+                size,
+                pos,
+                mat,
+                rgba,
+            )
 
     def control_loop(self):
 
@@ -146,12 +165,7 @@ class Planner:
             torque_horizon,
             theta_horizon,
             tip_trace_planned,
-            tip_trace_all,
-            torque_samples,
-            torque_filtered,
-            primal_res,
-            fixed_res,
-            xi_samples,
+            *_,
         ) = self.planner.compute_control(
             self.data,
             current_pos,
@@ -165,9 +179,11 @@ class Planner:
 
         mujoco.mj_step(self.model, self.data)
 
-        # Render frame
         self.renderer.update_scene(self.data)
-        img = self.renderer.render()
+        self.render_trace(tip_trace_planned[:, :3])
+
+        frame = self.renderer.render()
+        self.frames.append(frame)
 
         print(
             f"\n| Total time: {time.time()-self.traj_time_start:.1f}s"
@@ -175,7 +191,8 @@ class Planner:
             f"\n| Cost: {cost_cem[-1]:.2f}"
             f"\n| Theta: {cost_theta:.2f}"
             f"\n| ThetaDot: {cost_thetadot:.2f}"
-            f"\n| Control: {cost_control:.2f}"
+            f"\n| Control: {cost_control:.2f}",
+            flush=True
         )
 
         step_sleep = self.model.opt.timestep - (time.time() - start_time)
@@ -183,24 +200,20 @@ class Planner:
         if step_sleep > 0:
             time.sleep(step_sleep)
 
-        return img
+    def run(self, steps=250):
 
-    def run(self):
+        for i in range(steps):
+            print(f"\n| Step {i}", flush=True)
+            self.control_loop()
 
-        for _ in range(200):
+        imageio.mimsave("pendulum_video.mp4", self.frames, fps=10)
 
-            img = self.control_loop()
-
-            clear_output(wait=True)
-            plt.imshow(img)
-            plt.axis("off")
-            display(plt.gcf())
+        print("\nVideo saved: pendulum_video.mp4")
 
 
 def main():
 
     planner = Planner(
-        record_data=False,
         num_batch=500,
         num_steps=15,
         maxiter_cem=1,
@@ -209,7 +222,7 @@ def main():
         timestep=0.1,
     )
 
-    planner.run()
+    planner.run(steps=150)
 
 
 if __name__ == "__main__":
