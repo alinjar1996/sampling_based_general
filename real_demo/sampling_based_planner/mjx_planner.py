@@ -55,7 +55,7 @@ class cem_planner():
 		# self.Pdot = jnp.diff(self.P, axis=0)/self.t # DTorque mapping
 		# self.Pddot = jnp.diff(self.Pdot, axis=0)/self.t # DDTorque mapping
 		
-		self.P, self.Pdot, self.Pddot = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+		self.P, self.Pdot, self.Pddot, _ = bernstein_coeff_ordern_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
 		
 		self.Pint = jnp.cumsum(self.P, axis=0)*self.t # IntTorque mapping
         
