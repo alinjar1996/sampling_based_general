@@ -238,11 +238,11 @@ class Planner:
         print(
             f"\n| Total time: {time.time()-self.traj_time_start:.1f}s"
             f"\n| Step time: {(time.time()-start_time)*1000:.1f}ms"
-            f"\n| Cost: {cost_cem[-1]:.2f}"
-            f"\n| Height: {cost_height:.2f}"
-            f"\n| Orientation: {cost_orientation:.2f}"
-            f"\n| Velocity: {cost_velocity:.2f}"
-            f"\n| Control: {cost_control:.2f}",
+            f"\n| Total Cost (Across Horizon): {cost_cem[-1]:.2f}"
+            f"\n| Cost Height (Across Horizon): {cost_height:.2f}"
+            f"\n| Cost Orientation (Across Horizon): {cost_orientation:.2f}"
+            f"\n| Velocity (Across Horizon): {cost_velocity:.2f}"
+            f"\n| Control (Across Horizon): {cost_control:.2f}",
             flush=True,
         )
 
